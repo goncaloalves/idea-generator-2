@@ -46,7 +46,7 @@ npm test             # 50 tests, fake LLM, no network
 npm run calibrate    # real judge vs. reference ideas (~$0.07); -- --model ollama:qwen3:8b for others
 ```
 
-All app settings live in the browser (localStorage), including API keys, models per role, provider addresses, the projects folder and the global budget. The browser pushes them to the local server, which keeps them in memory only and never writes keys to disk. Environment variables (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY`) work as a fallback.
+All app settings live in the browser (localStorage), including API keys, models per role, provider addresses, the projects folder and the global budget. The browser pushes them to the local server. API keys are kept in memory only and never written to disk; everything else (provider base URLs, models per role, projects folder, global budget) is persisted to `data/settings.json` so it survives a restart, and the server is usable straight after a boot without waiting for a browser. Environment variables (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY`, `CUSTOM_API_KEY`) work as a fallback. Set `SETTINGS_FILE` to keep that file somewhere else.
 
 The server listens on 127.0.0.1 only. There is no login, and keys pass through it, so **do not expose it** as is.
 

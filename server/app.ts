@@ -183,7 +183,10 @@ export function createHandler({ repo, engine, autopilot, runtime, publicDir }: D
   const routes: [string, RegExp, Handler][] = [
     // ---- app settings: owned by the browser, held here in memory only
     ['PUT', /^\/api\/runtime-settings$/, (_p, b) => {
-      runtime.set(mergeAppSettings(b));
+      // Merge onto what is already loaded (from data/settings.json) rather than
+      // onto the built-in defaults, so a partial push from the browser cannot
+      // wipe the custom provider base URL set earlier.
+      runtime.set(mergeAppSettings(b, runtime.get()));
       return providerStatus();
     }],
     ['GET', /^\/api\/providers$/, () => providerStatus()],

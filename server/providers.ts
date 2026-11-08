@@ -70,10 +70,10 @@ export function parseModel(ref: string): { provider: ProviderId; model: string }
   return { provider: 'openrouter', model: ref };
 }
 
-/** Merge settings pushed from the browser onto the defaults, keeping only well-typed values. */
-export function mergeAppSettings(raw: any): AppSettings {
+/** Merge settings pushed from the browser onto a base (defaults, or what is already in memory). */
+export function mergeAppSettings(raw: any, base: AppSettings = DEFAULT_APP_SETTINGS): AppSettings {
   const s = (v: unknown, max = 500) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
-  const out: AppSettings = structuredClone(DEFAULT_APP_SETTINGS);
+  const out: AppSettings = structuredClone(base);
   for (const p of Object.keys(PROVIDERS) as ProviderId[]) {
     if (s(raw?.keys?.[p])) out.keys[p] = s(raw.keys[p]);
     if (typeof raw?.baseUrls?.[p] === 'string') out.baseUrls[p] = s(raw.baseUrls[p]).replace(/\/+$/, '');
@@ -83,6 +83,19 @@ export function mergeAppSettings(raw: any): AppSettings {
   const max = Number(raw?.maxUsdPerDay);
   if (Number.isFinite(max) && max >= 0) out.maxUsdPerDay = Math.min(1000, max);
   return out;
+}
+
+/**
+ * The persistable half of the settings: everything except API keys. Keys stay
+ * in the browser or the environment forever; base URLs, per-role models and
+ * budgets are safe on disk and must survive a restart, otherwise every boot
+ * loses the custom provider endpoint.
+ */
+export type PersistedSettings = Omit<AppSettings, 'keys'>;
+
+export function toPersisted(s: AppSettings): PersistedSettings {
+  const { keys: _keys, ...rest } = s;
+  return rest;
 }
 
 /** Browser-entered key first, then the environment. */

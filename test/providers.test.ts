@@ -4,7 +4,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import {
-  DEFAULT_APP_SETTINGS, extractJson, keyFor, listModels, makeChat, mergeAppSettings, parseModel, ProviderError, type AppSettings,
+  DEFAULT_APP_SETTINGS, extractJson, keyFor, listModels, makeChat, mergeAppSettings, parseModel, ProviderError, toPersisted, type AppSettings,
 } from '../server/providers.ts';
 
 type Seen = { path: string; headers: Record<string, any>; body: any };
@@ -166,4 +166,26 @@ test('model lists double as a connection test', async () => {
   assert.deepEqual(await listModels(settingsWith({ baseUrls: { ollama: base } }), 'ollama'), ['qwen3:8b', 'gemma3:4b']);
   assert.deepEqual(await listModels(settingsWith({ baseUrls: { mlx: base } }), 'mlx'), ['a', 'b']);
   await assert.rejects(listModels(settingsWith({ baseUrls: { mlx: 'http://127.0.0.1:1' } }), 'mlx'), (e: any) => e.code === 'unreachable');
+});
+
+test('persisted settings never contain API keys', () => {
+  const withKeys = mergeAppSettings({ keys: { custom: 'secret-key' }, baseUrls: { custom: 'https://opencode.ai/zen/go/v1' } });
+  const persisted = toPersisted(withKeys);
+  assert.equal('keys' in (persisted as any), false);
+  assert.equal(persisted.baseUrls.custom, 'https://opencode.ai/zen/go/v1');
+  // Round-trips through JSON unchanged, and the key is nowhere in the text.
+  const json = JSON.stringify(persisted);
+  assert.ok(!json.includes('secret-key'));
+});
+
+test('settings merge onto a base so a restart keeps the custom base URL', () => {
+  // What data/settings.json holds after a boot with a custom endpoint configured.
+  const fromDisk = mergeAppSettings({ baseUrls: { custom: 'https://opencode.ai/zen/go/v1' }, maxUsdPerDay: 3 });
+  // A partial push from a browser that knows nothing about the custom provider.
+  const afterPush = mergeAppSettings({ models: { judge: 'openrouter:x/y' } }, fromDisk);
+  assert.equal(afterPush.baseUrls.custom, 'https://opencode.ai/zen/go/v1');
+  assert.equal(afterPush.maxUsdPerDay, 3);
+  assert.equal(afterPush.models.judge, 'openrouter:x/y');
+  // And a full default base still resets cleanly when asked explicitly.
+  assert.equal(mergeAppSettings({}, DEFAULT_APP_SETTINGS).baseUrls.custom, '');
 });
