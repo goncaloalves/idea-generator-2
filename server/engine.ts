@@ -12,7 +12,7 @@ import { bskyLeads, fetchBskyPosts, fetchPapers as realFetchPapers, researchLead
 import { writeBrief, writeProject } from './project.ts';
 import { ProviderError, type AppSettings, type ChatFn, type Role } from './providers.ts';
 import { fitness, isJudged, medal, scoreSum } from '../public/js/score.js';
-import { nextMove } from '../public/js/evolve.js';
+import { expandedIds, nextMove } from '../public/js/evolve.js';
 
 export class AppError extends Error {
   status: number;
@@ -496,14 +496,22 @@ export function createEngine(deps: Deps) {
         await judgeAll(unjudged.map((i) => i.id));
         return { did: 'judge', ids: unjudged.map((i) => i.id) };
       }
+      if (ideas.length >= board.config.maxIdeas) return { did: 'idle', reason: 'max_ideas' };
+      const edges = repo.listEdges(boardId);
+      const expanded = expandedIds(ideas, edges);
+      const hasUnexpandedBase =
+        board.config.mode === 'random' &&
+        ideas.some((i) => (i.kind === 'seed' || i.kind === 'guest' || (i.generation || 0) === 0) && !expanded.has(i.id));
       const unusedLead = repo.listLeads(boardId).find((l) => l.ideaId == null);
       const lastSeedIdx = ideas.findLastIndex((i) => i.kind === 'seed' || i.kind === 'guest');
       const sinceLastSeed = lastSeedIdx >= 0 ? ideas.length - 1 - lastSeedIdx : ideas.length;
-      const move = nextMove(ideas, repo.listEdges(boardId), {
+      const move = nextMove(ideas, edges, {
         busy: judging,
         maxGenerations: board.config.maxGenerations,
+        maxIdeas: board.config.maxIdeas,
+        mode: board.config.mode,
       });
-      if (unusedLead && (!move || sinceLastSeed >= 6)) {
+      if (unusedLead && !hasUnexpandedBase && (!move || sinceLastSeed >= 6)) {
         const pos = besideBoard(ideas);
         const idea = repo.insertIdea({
           boardId: unusedLead.boardId,

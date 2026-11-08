@@ -147,12 +147,14 @@ export type BoardConfig = {
   };
   /** Fallback language for generated text ('sv' | 'en'); ideas otherwise follow their seed's language. */
   lang: 'sv' | 'en';
-  /** manual: people drive. auto: the server evolves the board on its own, within the limits below. */
-  mode: 'manual' | 'auto';
+  /** manual: people drive. auto: tournament evolution. random: branch all base ideas, then cross all ideas randomly. */
+  mode: 'manual' | 'auto' | 'random';
   /** Seconds between autopilot steps (pace). */
   autopilotSeconds: number;
   /** Highest generation autopilot may create on this board (1–50). */
   maxGenerations: number;
+  /** Maximum total ideas on this board before autopilot stops generating (1–2000). */
+  maxIdeas: number;
   rate: { stepsPerHour: number; usdPerDay: number };
   autoProjectOnGold: boolean;
   /** Per-role model overrides ("provider:model"); empty = the app-wide setting. */
@@ -173,6 +175,7 @@ export function defaultConfig(template = DEFAULT_TEMPLATES[0]): BoardConfig {
     mode: 'manual',
     autopilotSeconds: 10,
     maxGenerations: 5,
+    maxIdeas: 100,
     rate: { stepsPerHour: 60, usdPerDay: 1 },
     autoProjectOnGold: true,
     models: {},
@@ -191,6 +194,7 @@ export function mergeConfig(base: BoardConfig, raw: any): BoardConfig {
   const rr = r.researchers?.research ?? {};
   const secs = num(r.autopilotSeconds);
   const maxGen = num(r.maxGenerations);
+  const maxIdeas = num(r.maxIdeas);
   const sph = num(r.rate?.stepsPerHour);
   const usd = num(r.rate?.usdPerDay);
   const models: BoardConfig['models'] = { ...base.models };
@@ -218,9 +222,10 @@ export function mergeConfig(base: BoardConfig, raw: any): BoardConfig {
       },
     },
     lang: r.lang === 'en' || r.lang === 'sv' ? r.lang : base.lang,
-    mode: r.mode === 'auto' || r.mode === 'manual' ? r.mode : base.mode,
+    mode: r.mode === 'auto' || r.mode === 'manual' || r.mode === 'random' ? r.mode : base.mode,
     autopilotSeconds: Number.isFinite(secs) ? Math.min(3600, Math.max(3, Math.round(secs))) : base.autopilotSeconds,
     maxGenerations: Number.isFinite(maxGen) ? Math.min(50, Math.max(1, Math.round(maxGen))) : base.maxGenerations,
+    maxIdeas: Number.isFinite(maxIdeas) ? Math.min(2000, Math.max(1, Math.round(maxIdeas))) : base.maxIdeas,
     rate: {
       stepsPerHour: Number.isFinite(sph) ? Math.min(3600, Math.max(1, Math.round(sph))) : base.rate.stepsPerHour,
       usdPerDay: Number.isFinite(usd) ? Math.min(1000, Math.max(0, Math.round(usd * 100) / 100)) : base.rate.usdPerDay,

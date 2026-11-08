@@ -96,6 +96,11 @@ test('scheduler: only auto boards run, at their pace, within their limits', asyn
   repo.updateBoard(auto.id, { config: { mode: 'manual' } });
   await ap.tick();
   assert.equal(ap.status(auto.id).state, 'manual');
+
+  // A board in 'random' mode is also scheduled by autopilot.
+  const rnd = repo.createBoard({ title: 'Random', config: { mode: 'random', autopilotSeconds: 10, rate: { stepsPerHour: 10, usdPerDay: 100 } } });
+  now += 20_000; await ap.tick(); await flush();
+  assert.equal(steps.at(-1), rnd.id, 'random mode board runs on the autopilot scheduler');
 });
 
 test('autoStep with the real engine: judge first, grow a small pool, then breed', async () => {
@@ -141,4 +146,21 @@ test('autoStep with the real engine: judge first, grow a small pool, then breed'
   assert.ok(repo.listIdeas(capped.id).every((i) => i.generation <= 1));
   assert.deepEqual(await engine.autoStep(capped.id), { did: 'idle', reason: 'nothing_to_do' }, 'gen 1 ideas do not breed past maxGenerations=1');
   assert.ok(repo.getIdea(seedIdea.id));
+
+  // maxIdeas stops generation once the board reaches the configured total idea count (after judging any unjudged ideas).
+  const maxBoard = repo.createBoard({ title: 'MaxIdeas', config: { maxIdeas: 4 } });
+  repo.insertIdea({ boardId: maxBoard.id, title: 'M1', pitch: '', kind: 'seed', x: 0, y: 0, generation: 0 });
+  assert.equal((await engine.autoStep(maxBoard.id)).did, 'judge');
+  assert.equal((await engine.autoStep(maxBoard.id)).did, 'expand', '1 seed + 3 expanded = 4 ideas');
+  assert.equal(repo.listIdeas(maxBoard.id).length, 4);
+  assert.deepEqual(await engine.autoStep(maxBoard.id), { did: 'idle', reason: 'max_ideas' }, 'stops once maxIdeas is reached');
+
+  // random mode: expands every base idea before combining.
+  const rndBoard = repo.createBoard({ title: 'RandomBoard', config: { mode: 'random', maxIdeas: 50 } });
+  repo.insertIdea({ boardId: rndBoard.id, title: 'Base A', pitch: '', kind: 'seed', x: 0, y: 0, generation: 0 });
+  repo.insertIdea({ boardId: rndBoard.id, title: 'Base B', pitch: '', kind: 'seed', x: 100, y: 0, generation: 0 });
+  assert.equal((await engine.autoStep(rndBoard.id)).did, 'judge', 'judges both base seeds');
+  assert.equal((await engine.autoStep(rndBoard.id)).did, 'expand', 'expands first base seed');
+  assert.equal((await engine.autoStep(rndBoard.id)).did, 'expand', 'expands second base seed before combining');
+  assert.equal((await engine.autoStep(rndBoard.id)).did, 'combine', 'crosses ideas once all base seeds have branched out');
 });

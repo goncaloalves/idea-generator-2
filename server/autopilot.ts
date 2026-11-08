@@ -86,7 +86,7 @@ export function createAutopilot(deps: { repo: Repo; engine: Engine; settings: ()
     const t = now();
     const globalSpent = repo.spentOn(null);
     for (const b of repo.listBoards()) {
-      if (b.config.mode !== 'auto') {
+      if (b.config.mode === 'manual') {
         if (states.delete(b.id)) engine.bus.emit(b.id, { type: 'autopilot', status: { state: 'manual' } });
         continue;
       }

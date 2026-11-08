@@ -220,6 +220,7 @@ export function createHandler({ repo, engine, autopilot, runtime, publicDir }: D
             mode: ap.mode,
             autopilotSeconds: ap.seconds,
             maxGenerations: ap.maxGenerations,
+            maxIdeas: ap.maxIdeas,
             rate: { stepsPerHour: ap.stepsPerHour, usdPerDay: ap.usdPerDay },
           },
         }),

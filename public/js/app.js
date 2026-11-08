@@ -280,11 +280,11 @@ function renderHeader() {
       ? h('button', { class: 'linkish', onclick: () => openBoard(b.originBoardId) }, `↳ ${b.originIdeaTitle} · ${b.originBoardTitle}`)
       : '',
   );
-  const auto = b.config.mode === 'auto';
+  const active = b.config.mode !== 'manual';
   const btn = $('#mode-toggle');
-  btn.textContent = auto ? t('auto') : t('manual');
-  btn.classList.toggle('on', auto);
-  btn.setAttribute('aria-pressed', String(auto));
+  btn.textContent = b.config.mode === 'random' ? t('random') : b.config.mode === 'auto' ? t('auto') : t('manual');
+  btn.classList.toggle('on', active);
+  btn.setAttribute('aria-pressed', String(active));
   $('#ex-title').textContent = b.title;
   $('#ex-goal').textContent = b.goal;
   renderAutopilot();
@@ -293,14 +293,23 @@ function renderHeader() {
 function renderAutopilot() {
   const st = S.autopilot ?? { state: 'manual' };
   const chip = $('#ap-status');
-  if (S.board?.config.mode !== 'auto') {
+  if (!S.board || S.board.config.mode === 'manual') {
     chip.textContent = '';
     chip.className = 'ap-chip';
     return;
   }
   const secs = st.until ? Math.max(0, Math.ceil((st.until - Date.now()) / 1000)) : 0;
   const time = st.until ? new Date(st.until).toLocaleTimeString(getLang() === 'sv' ? 'sv-SE' : 'en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
-  const key = st.state === 'idle' ? (st.last === 'empty' ? 'ap_idle_empty' : st.last === 'nothing_to_do' ? 'ap_idle_nothing' : 'ap_idle') : `ap_${st.state}`;
+  const key =
+    st.state === 'idle'
+      ? st.last === 'empty'
+        ? 'ap_idle_empty'
+        : st.last === 'max_ideas'
+          ? 'ap_idle_max_ideas'
+          : st.last === 'nothing_to_do'
+            ? 'ap_idle_nothing'
+            : 'ap_idle'
+      : `ap_${st.state}`;
   chip.textContent = t(key, { s: `${secs} s`, time, m: st.message ?? '' });
   chip.title = t('apMeta', { n: st.stepsLastHour ?? 0, usd: (st.spentToday ?? S.spentToday ?? 0).toFixed(3) });
   chip.className = `ap-chip ${['error', 'backoff', 'board_budget', 'global_budget', 'hourly'].includes(st.state) ? 'warn' : st.state === 'running' ? 'busy' : ''}`;
@@ -314,7 +323,7 @@ function renderBoardMenu() {
     menu,
     S.boards.map((b) =>
       h('button', { class: `menu-item ${b.id === S.board?.id ? 'current' : ''}`, onclick: () => { menu.hidden = true; openBoard(b.id); } },
-        h('span', { class: `dot ${b.config.mode === 'auto' ? 'auto' : ''}` }),
+        h('span', { class: `dot ${b.config.mode !== 'manual' ? 'auto' : ''}` }),
         h('span', { class: 'grow' }, b.title),
         h('span', { class: 'muted' }, String(b.ideaCount ?? '')),
       ),
@@ -637,9 +646,13 @@ async function boardSettingsDialog() {
   const xOn = h('input', { type: 'checkbox', checked: c.researchers.x.enabled }), xFocus = inp(c.researchers.x.focus, { placeholder: t('focusPh') });
   const bOn = h('input', { type: 'checkbox', checked: c.researchers.bsky.enabled }), bFocus = inp(c.researchers.bsky.focus, { placeholder: t('focusPh') });
   const rOn = h('input', { type: 'checkbox', checked: c.researchers.research.enabled }), rFocus = inp(c.researchers.research.focus, { placeholder: t('focusPh') });
-  const mode = h('select', {}, h('option', { value: 'manual', selected: c.mode === 'manual' }, t('manual')), h('option', { value: 'auto', selected: c.mode === 'auto' }, t('auto')));
+  const mode = h('select', {},
+    h('option', { value: 'manual', selected: c.mode === 'manual' }, t('manual')),
+    h('option', { value: 'auto', selected: c.mode === 'auto' }, t('auto')),
+    h('option', { value: 'random', selected: c.mode === 'random' }, t('random')));
   const pace = inp(c.autopilotSeconds, { type: 'number', min: 3, max: 3600 });
   const maxGen = inp(c.maxGenerations ?? 5, { type: 'number', min: 1, max: 50 });
+  const maxIdeas = inp(c.maxIdeas ?? 100, { type: 'number', min: 1, max: 2000 });
   const sph = inp(c.rate.stepsPerHour, { type: 'number', min: 1, max: 3600 });
   const usd = inp(c.rate.usdPerDay, { type: 'number', min: 0, step: 0.1 });
   const models = Object.fromEntries(ROLES.map((r) => [r, inp(c.models?.[r] ?? '', { placeholder: S.settings.models[r], list: 'model-list' })]));
@@ -674,7 +687,7 @@ async function boardSettingsDialog() {
       h('label', { class: 'check' }, bOn, t('bskyScout')), field(t('focus'), bFocus),
       h('label', { class: 'check' }, rOn, t('researchScout')), field(t('focus'), rFocus)),
     h('fieldset', {}, h('legend', {}, t('autopilot')),
-      h('div', { class: 'grid2' }, field(t('mode'), mode), field(t('maxGenerations'), maxGen)),
+      h('div', { class: 'grid3' }, field(t('mode'), mode), field(t('maxGenerations'), maxGen), field(t('maxIdeas'), maxIdeas)),
       h('div', { class: 'grid3' }, field(t('pace'), pace), field(t('stepsPerHour'), sph), field(t('usdPerDay'), usd)),
       h('small', { class: 'muted' }, t('rateNote'))),
     h('fieldset', {}, h('legend', {}, t('models')), h('small', { class: 'muted' }, t('modelsBoardNote')),
@@ -704,7 +717,7 @@ async function boardSettingsDialog() {
             lang: lang.value, flowName: flowName.value, flow: { system: sys.value, expand: exp.value, combine: comb.value },
             judgeGuidance: guidance.value, autoProjectOnGold: autoProj.checked,
             researchers: { x: { enabled: xOn.checked, focus: xFocus.value }, bsky: { enabled: bOn.checked, focus: bFocus.value }, research: { enabled: rOn.checked, focus: rFocus.value } },
-            mode: mode.value, autopilotSeconds: Number(pace.value), maxGenerations: Number(maxGen.value),
+            mode: mode.value, autopilotSeconds: Number(pace.value), maxGenerations: Number(maxGen.value), maxIdeas: Number(maxIdeas.value),
             rate: { stepsPerHour: Number(sph.value), usdPerDay: Number(usd.value) },
             models: Object.fromEntries(ROLES.map((r) => [r, models[r].value])),
           },
@@ -769,9 +782,11 @@ function appSettingsDialog() {
   const ap = { ...DEFAULTS.autopilot, ...(s.autopilot && typeof s.autopilot === 'object' ? s.autopilot : {}) };
   const apMode = h('select', {},
     h('option', { value: 'manual', selected: ap.mode === 'manual' }, t('manual')),
-    h('option', { value: 'auto', selected: ap.mode === 'auto' }, t('auto')));
+    h('option', { value: 'auto', selected: ap.mode === 'auto' }, t('auto')),
+    h('option', { value: 'random', selected: ap.mode === 'random' }, t('random')));
   const apSeconds = h('input', { type: 'number', min: 3, max: 3600, value: ap.seconds });
   const apMaxGen = h('input', { type: 'number', min: 1, max: 50, value: ap.maxGenerations });
+  const apMaxIdeas = h('input', { type: 'number', min: 1, max: 2000, value: ap.maxIdeas });
   const apSph = h('input', { type: 'number', min: 1, max: 3600, value: ap.stepsPerHour });
   const apUsd = h('input', { type: 'number', min: 0, step: 0.1, value: ap.usdPerDay });
 
@@ -784,9 +799,10 @@ function appSettingsDialog() {
     s.projectsRoot = root.value.trim() || DEFAULTS.projectsRoot;
     s.maxUsdPerDay = Number(budget.value);
     s.autopilot = {
-      mode: apMode.value === 'auto' ? 'auto' : 'manual',
+      mode: apMode.value === 'auto' || apMode.value === 'random' ? apMode.value : 'manual',
       seconds: Number(apSeconds.value),
       maxGenerations: Number(apMaxGen.value),
+      maxIdeas: Number(apMaxIdeas.value),
       stepsPerHour: Number(apSph.value),
       usdPerDay: Number(apUsd.value),
     };
@@ -803,7 +819,7 @@ function appSettingsDialog() {
     h('fieldset', {}, h('legend', {}, 'Claude Code'), field(t('projectsRoot'), root)),
     h('fieldset', {}, h('legend', {}, t('autopilot')), field(t('globalBudget'), budget, spend),
       h('small', { class: 'muted' }, t('autopilotDefaultsNote')),
-      h('div', { class: 'grid2' }, field(t('mode'), apMode), field(t('maxGenerations'), apMaxGen)),
+      h('div', { class: 'grid3' }, field(t('mode'), apMode), field(t('maxGenerations'), apMaxGen), field(t('maxIdeas'), apMaxIdeas)),
       h('div', { class: 'grid3' }, field(t('pace'), apSeconds), field(t('stepsPerHour'), apSph), field(t('usdPerDay'), apUsd)),
       h('small', { class: 'muted' }, t('rateNote'))),
   ], [
@@ -927,7 +943,10 @@ function wire() {
   $('#board-title').addEventListener('change', (e) => e.target.value.trim() && patchBoard({ title: e.target.value }));
   $('#board-goal').addEventListener('change', (e) => patchBoard({ goal: e.target.value }));
   for (const id of ['#board-title', '#board-goal']) $(id).addEventListener('keydown', (e) => e.key === 'Enter' && e.target.blur());
-  $('#mode-toggle').addEventListener('click', () => patchBoard({ config: { mode: S.board.config.mode === 'auto' ? 'manual' : 'auto' } }).then(renderAutopilot));
+  $('#mode-toggle').addEventListener('click', () => {
+    const next = S.board.config.mode === 'manual' ? 'auto' : S.board.config.mode === 'auto' ? 'random' : 'manual';
+    patchBoard({ config: { mode: next } }).then(renderAutopilot);
+  });
   $('#leads-btn').addEventListener('click', () => {
     const p = $('#leads-panel');
     p.hidden = !p.hidden;

@@ -98,7 +98,9 @@ function tournament(pool, k, rng, scoreFn = fitness) {
  * @param {Array} edges  {from, to}
  * @param {object} opts  rng, busy (Set of ids being worked on), inFlight (Set of pair keys),
  *                       mutationRate, k (tournament size), maxOverlap (max lineage Jaccard overlap),
- *                       maxGenerations (highest generation autopilot may create; parents must have generation < maxGenerations)
+ *                       maxGenerations (highest generation autopilot may create; parents must have generation < maxGenerations),
+ *                       maxIdeas (stop generating once ideas.length >= maxIdeas),
+ *                       mode ('auto' | 'random')
  * @returns {{type:'combine', a, b} | {type:'expand', idea} | null}
  */
 export function nextMove(ideas, edges, opts = {}) {
@@ -110,11 +112,45 @@ export function nextMove(ideas, edges, opts = {}) {
     k = 3,
     maxOverlap = 0.45,
     maxGenerations = Infinity,
+    maxIdeas = Infinity,
+    mode = 'auto',
   } = opts;
+  if (Number.isFinite(maxIdeas) && maxIdeas > 0 && ideas.length >= maxIdeas) return null;
   const genCap = Number.isFinite(maxGenerations) && maxGenerations > 0 ? maxGenerations : Infinity;
   const pool = population(ideas).filter((i) => !busy.has(i.id) && (i.generation || 0) < genCap);
   const expanded = expandedIds(ideas, edges);
   const used = usedPairs(ideas, edges);
+
+  if (mode === 'random' || opts.strategy === 'random') {
+    // 1. Branch out all base ideas (seed / guest / generation 0) first.
+    const baseUnexpanded = pool.filter(
+      (i) => (i.kind === 'seed' || i.kind === 'guest' || (i.generation || 0) === 0) && !expanded.has(i.id),
+    );
+    if (baseUnexpanded.length > 0) {
+      const idea = baseUnexpanded[Math.floor(rng() * baseUnexpanded.length)];
+      return { type: 'expand', idea };
+    }
+    // 2. Cross all ideas with each other uniformly at random (excluding already-used or ancestor-descendant pairs).
+    const validPairs = [];
+    for (let idxA = 0; idxA < pool.length; idxA++) {
+      for (let idxB = idxA + 1; idxB < pool.length; idxB++) {
+        const a = pool[idxA];
+        const b = pool[idxB];
+        const key = pairKey(a.id, b.id);
+        if (!used.has(key) && !inFlight.has(key)) validPairs.push({ type: 'combine', a, b });
+      }
+    }
+    if (validPairs.length > 0) {
+      return validPairs[Math.floor(rng() * validPairs.length)];
+    }
+    // 3. Fallback: if any unexpanded idea remains within the generation cap, branch it out randomly.
+    const unexpanded = pool.filter((i) => !expanded.has(i.id));
+    if (unexpanded.length > 0) {
+      return { type: 'expand', idea: unexpanded[Math.floor(rng() * unexpanded.length)] };
+    }
+    return null;
+  }
+
   const ancestors = ancestorsOf(ideas, edges);
   const bredCount = combineCounts(ideas, edges);
 

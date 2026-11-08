@@ -186,3 +186,54 @@ test('maxGenerations caps which ideas can be expanded or combined', () => {
   const edges = [{ from: 1, to: 2 }];
   assert.equal(nextMove(ideas, edges, { rng: rngFrom(1), maxGenerations: 2 }), null);
 });
+
+test('maxIdeas stops nextMove once the board has reached the idea limit', () => {
+  const ideas = [
+    idea(1, 10, { kind: 'seed', generation: 0 }),
+    idea(2, 11, { kind: 'seed', generation: 0 }),
+    idea(3, 12, { kind: 'expand', generation: 1 }),
+  ];
+  assert.equal(nextMove(ideas, [], { rng: rngFrom(1), maxIdeas: 3 }), null, 'at maxIdeas limit');
+  assert.equal(nextMove(ideas, [], { rng: rngFrom(1), maxIdeas: 2 }), null, 'above maxIdeas limit');
+  assert.notEqual(nextMove(ideas, [], { rng: rngFrom(1), maxIdeas: 4 }), null, 'below maxIdeas limit');
+});
+
+test('random mode branches all base ideas first, then crosses all ideas uniformly at random', () => {
+  const seeds = [
+    idea(1, 5, { kind: 'seed', generation: 0 }),
+    idea(2, 14, { kind: 'seed', generation: 0 }),
+    idea(3, 8, { kind: 'guest', generation: 0 }),
+    idea(4, 15, { kind: 'expand', generation: 1 }),
+  ];
+  // When only seed 2 is expanded so far, random mode must expand seeds 1 and 3 before doing any combine
+  const edges = [{ from: 2, to: 4 }];
+  for (let s = 0; s < 50; s++) {
+    const m = nextMove(seeds, edges, { rng: rngFrom(s), mode: 'random' });
+    assert.equal(m?.type, 'expand', 'must expand unexpanded base ideas first');
+    assert.ok(m.idea.id === 1 || m.idea.id === 3, `expected base idea 1 or 3, got ${m.idea.id}`);
+  }
+
+  // Once all base ideas (1, 2, 3) have expand children, random mode crosses all eligible pairs uniformly
+  const allExpandedIdeas = [
+    ...seeds,
+    idea(5, 6, { kind: 'expand', generation: 1 }),
+    idea(6, 7, { kind: 'expand', generation: 1 }),
+  ];
+  const allExpandedEdges = [
+    { from: 2, to: 4 },
+    { from: 1, to: 5 },
+    { from: 3, to: 6 },
+  ];
+  const pairCounts = new Map<string, number>();
+  const rng = rngFrom(99);
+  for (let n = 0; n < 1200; n++) {
+    const m = nextMove(allExpandedIdeas, allExpandedEdges, { rng, mode: 'random' });
+    assert.equal(m?.type, 'combine', 'once all base ideas are expanded, random mode crosses ideas');
+    const k = pairKey(m.a.id, m.b.id);
+    pairCounts.set(k, (pairCounts.get(k) ?? 0) + 1);
+  }
+  // Low-scoring seed 1 (sum 5) and guest 3 (sum 8) should be crossed just as often as high-scoring ideas
+  assert.ok((pairCounts.get(pairKey(1, 3)) ?? 0) > 50, 'low-score base pair 1-3 is crossed frequently in random mode');
+  assert.ok((pairCounts.get(pairKey(5, 6)) ?? 0) > 50, 'branch children 5-6 are crossed with each other');
+  assert.equal(pairCounts.get(pairKey(1, 5)) ?? 0, 0, 'parent-child pair 1-5 is never crossed');
+});

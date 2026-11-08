@@ -158,20 +158,29 @@ test('each role uses its own model: app-wide setting, overridden per board', asy
 });
 
 test('board config is validated and clamped', async () => {
-  await api('PUT', '/api/runtime-settings', { ...settings, autopilot: { ...settings.autopilot, maxGenerations: 7 }, __userEdit: true });
+  await api('PUT', '/api/runtime-settings', {
+    ...settings,
+    autopilot: { ...settings.autopilot, mode: 'random', maxGenerations: 7, maxIdeas: 150 },
+    __userEdit: true,
+  });
   const board = await newBoard();
+  assert.equal(board.config.mode, 'random', 'new board inherits global random mode default');
   assert.equal(board.config.maxGenerations, 7, 'new board inherits global maxGenerations default');
+  assert.equal(board.config.maxIdeas, 150, 'new board inherits global maxIdeas default');
   const { data } = await api('PATCH', `/api/boards/${board.id}`, {
-    config: { mode: 'chaos', rate: { stepsPerHour: 0, usdPerDay: -3 }, autopilotSeconds: 1, maxGenerations: 0, flow: { system: '' }, lang: 'de' },
+    config: { mode: 'chaos', rate: { stepsPerHour: 0, usdPerDay: -3 }, autopilotSeconds: 1, maxGenerations: 0, maxIdeas: 0, flow: { system: '' }, lang: 'de' },
   });
   const c = data.board.config;
-  assert.equal(c.mode, 'manual');
+  assert.equal(c.mode, 'random', 'invalid mode keeps the previous valid mode');
   assert.equal(c.rate.stepsPerHour, 1);
   assert.equal(c.rate.usdPerDay, 0);
   assert.equal(c.autopilotSeconds, 3);
   assert.equal(c.maxGenerations, 1, 'maxGenerations below 1 is clamped to 1');
-  const { data: data2 } = await api('PATCH', `/api/boards/${board.id}`, { config: { maxGenerations: 999 } });
+  assert.equal(c.maxIdeas, 1, 'maxIdeas below 1 is clamped to 1');
+  const { data: data2 } = await api('PATCH', `/api/boards/${board.id}`, { config: { mode: 'manual', maxGenerations: 999, maxIdeas: 99999 } });
+  assert.equal(data2.board.config.mode, 'manual');
   assert.equal(data2.board.config.maxGenerations, 50, 'maxGenerations above 50 is clamped to 50');
+  assert.equal(data2.board.config.maxIdeas, 2000, 'maxIdeas above 2000 is clamped to 2000');
   assert.ok(c.flow.system.length > 20, 'an empty prompt keeps the old one');
   assert.equal(c.lang, 'sv');
   settings = { ...structuredClone(DEFAULT_APP_SETTINGS), projectsRoot };

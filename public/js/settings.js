@@ -16,7 +16,7 @@ export const DEFAULTS = {
   models: { distill: SONNET, expand: SONNET, combine: SONNET, judge: SONNET, summary: SONNET, research: SONNET, x: 'openrouter:x-ai/grok-4.3', bsky: SONNET, brief: SONNET },
   projectsRoot: '~/Projekt/idea-projects',
   maxUsdPerDay: 5,
-  autopilot: { mode: 'manual', seconds: 10, stepsPerHour: 60, usdPerDay: 1, maxGenerations: 5 },
+  autopilot: { mode: 'manual', seconds: 10, stepsPerHour: 60, usdPerDay: 1, maxGenerations: 5, maxIdeas: 100 },
 };
 
 export function loadSettings() {

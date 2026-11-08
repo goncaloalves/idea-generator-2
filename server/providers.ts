@@ -14,13 +14,15 @@ export const ROLES: Role[] = ['distill', 'expand', 'combine', 'judge', 'summary'
 
 /** Defaults every new board starts from; editable in the app settings page. */
 export type AutopilotDefaults = {
-  mode: 'manual' | 'auto';
+  mode: 'manual' | 'auto' | 'random';
   /** Seconds between autopilot steps. */
   seconds: number;
   stepsPerHour: number;
   usdPerDay: number;
   /** Highest generation autopilot may create on a board (1–50). */
   maxGenerations: number;
+  /** Maximum total ideas on a board before autopilot stops generating (1–2000). */
+  maxIdeas: number;
 };
 
 export type AppSettings = {
@@ -48,7 +50,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   models: { distill: SONNET, expand: SONNET, combine: SONNET, judge: SONNET, summary: SONNET, research: SONNET, x: 'openrouter:x-ai/grok-4.3', bsky: SONNET, brief: SONNET },
   projectsRoot: '~/Projekt/idea-projects',
   maxUsdPerDay: 5,
-  autopilot: { mode: 'manual', seconds: 10, stepsPerHour: 60, usdPerDay: 1, maxGenerations: 5 },
+  autopilot: { mode: 'manual', seconds: 10, stepsPerHour: 60, usdPerDay: 1, maxGenerations: 5, maxIdeas: 100 },
 };
 
 type ProviderDef = {
@@ -107,7 +109,7 @@ export function mergeAppSettings(raw: any, base: AppSettings = DEFAULT_APP_SETTI
   // null, undefined and junk are "absent", not zero: Number(null) would clamp to the floor.
   const num = (v: unknown) =>
     typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
-  if (ap.mode === 'auto' || ap.mode === 'manual') out.autopilot.mode = ap.mode;
+  if (ap.mode === 'auto' || ap.mode === 'manual' || ap.mode === 'random') out.autopilot.mode = ap.mode;
   const secs = num(ap.seconds);
   if (Number.isFinite(secs)) out.autopilot.seconds = Math.min(3600, Math.max(3, Math.round(secs)));
   const sph = num(ap.stepsPerHour);
@@ -116,6 +118,8 @@ export function mergeAppSettings(raw: any, base: AppSettings = DEFAULT_APP_SETTI
   if (Number.isFinite(apUsd)) out.autopilot.usdPerDay = Math.min(1000, Math.max(0, Math.round(apUsd * 100) / 100));
   const apMaxGen = num(ap.maxGenerations ?? raw?.maxGenerations);
   if (Number.isFinite(apMaxGen)) out.autopilot.maxGenerations = Math.min(50, Math.max(1, Math.round(apMaxGen)));
+  const apMaxIdeas = num(ap.maxIdeas ?? raw?.maxIdeas);
+  if (Number.isFinite(apMaxIdeas)) out.autopilot.maxIdeas = Math.min(2000, Math.max(1, Math.round(apMaxIdeas)));
 
   return out;
 }
@@ -187,7 +191,8 @@ export function mergeBrowserSettings(raw: any, current: AppSettings): AppSetting
       Number(ap.seconds) === d.seconds &&
       Number(ap.stepsPerHour) === d.stepsPerHour &&
       Number(ap.usdPerDay) === d.usdPerDay &&
-      (ap.maxGenerations === undefined || Number(ap.maxGenerations) === d.maxGenerations);
+      (ap.maxGenerations === undefined || Number(ap.maxGenerations) === d.maxGenerations) &&
+      (ap.maxIdeas === undefined || Number(ap.maxIdeas) === d.maxIdeas);
     if (pristine) out.autopilot = { ...current.autopilot };
   }
 
