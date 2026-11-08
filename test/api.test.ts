@@ -92,6 +92,22 @@ const newBoard = async (extra: object = {}) => (await api('POST', '/api/boards',
 const seed = async (boardId: number, text: string) => (await api('POST', `/api/boards/${boardId}/seed`, { text })).data.idea;
 const lastCall = (schema: string) => [...calls].reverse().find((c) => c.schemaName === schema)!;
 
+test('a seed too long for a title is rewritten, never cut off', async () => {
+  const board = await newBoard();
+
+  // Longer than MAX_TITLE_LENGTH: the distill role names it and keeps the rest as a pitch.
+  const long = `${'En lång beskrivning av ett frö som inte får kapas mitt i en mening. '.repeat(3)}Slut.`;
+  assert.ok(long.length > 120, 'the fixture has to exceed the title length');
+  const rewritten = await seed(board.id, long);
+  assert.equal(rewritten.title, 'Destillerat frö', 'the distill role names it');
+  assert.ok(rewritten.pitch.length > 0, 'and the remainder survives as a pitch');
+
+  // A seed that already fits is kept exactly as typed, with no wasted LLM call.
+  const short = await seed(board.id, 'Kort frö');
+  assert.equal(short.title, 'Kort frö');
+  assert.equal(short.pitch, '');
+});
+
 test('full loop: seed → background judge → expand → combine → export', async () => {
   judgeScores = { originality: 3, feasibility: 3, impact: 3 };
   const board = await newBoard({ goal: 'Färre bilresor i staden' });
