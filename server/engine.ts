@@ -411,7 +411,7 @@ export function createEngine(deps: Deps) {
       } else if (source === 'bsky') {
         let posts;
         try {
-          posts = await fetchBskyPosts(topic || board.goal);
+          posts = await fetchBskyPosts(board.goal, fetch, 40, focus);
         } catch (e: any) {
           throw new AppError(502, 'bsky_failed', e?.message ?? String(e));
         }

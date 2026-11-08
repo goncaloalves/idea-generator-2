@@ -130,41 +130,94 @@ export function bskyPermalink(uri: string, handle: string): string | null {
   return `https://bsky.app/profile/${handle}/post/${m[2]}`;
 }
 
+const BSKY_STOPWORDS = new Set([
+  'the','and','with','for','that','this','from','have','must','into','your','they','them','their','there','which','while','about','over','under','each','every','only','also','than','then','when','what','where','will','would','should','could','can','not','but','out','one','two','any','all','are','was','were','been','being','has','had','its','his','her','our','you','who','how','why','per','via','use','using','used','make','made','able','easily','easy','hard','产品'
+]);
+
+/**
+ * Bluesky full-text search is keyword based: a whole goal paragraph matches
+ * nothing. Turn the goal into a handful of short candidate queries, most
+ * specific first, and let the caller try them in order.
+ */
+export function bskyQueryCandidates(goal: string, focus = ''): string[] {
+  const out: string[] = [];
+  const push = (q: string) => {
+    const v = q.trim().replace(/\s+/g, ' ').slice(0, 100);
+    if (v && v.length >= 3 && !out.includes(v)) out.push(v);
+  };
+
+  // An explicit focus is already a short phrase written for this purpose.
+  if (focus.trim() && focus.trim().length <= 80) push(focus);
+
+  const words = goal
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 4 && !BSKY_STOPWORDS.has(w));
+
+  // Two-word phrases beat single words for relevance on this endpoint.
+  for (let i = 0; i + 1 < words.length && out.length < 6; i++) {
+    if (words[i] !== words[i + 1]) push(`${words[i]} ${words[i + 1]}`);
+  }
+  for (const w of words) {
+    if (out.length >= 10) break;
+    push(w);
+  }
+
+  if (!out.length) push(DEFAULT_TOPIC);
+  return out.slice(0, 10);
+}
+
 /**
  * Bluesky has no model-side live search, so we fetch real posts ourselves and
  * hand the verified list to the model to pick from. Every lead URL therefore
  * provably exists, unlike the X scout which depends on the citations coming back.
  */
-export async function fetchBskyPosts(goal: string, fetchFn: typeof fetch = fetch, limit = 40): Promise<BskyPost[]> {
-  const q = goal.trim().slice(0, 200) || DEFAULT_TOPIC;
-  const url = `https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(q)}&limit=${Math.min(limit, 100)}&sort=latest`;
-  const res = await fetchFn(url, {
-    signal: AbortSignal.timeout(20_000),
-    headers: { Accept: 'application/json', 'User-Agent': 'idea-generator-2/0.1.0' },
-  });
-  if (!res.ok) throw new Error(`Bluesky ${res.status}`);
-  const data: any = await res.json();
+export async function fetchBskyPosts(goal: string, fetchFn: typeof fetch = fetch, limit = 40, focus = ''): Promise<BskyPost[]> {
   const weekAgo = Date.now() - 7 * 86_400_000;
-  const out: BskyPost[] = [];
   const seen = new Set<string>();
-  for (const p of Array.isArray(data?.posts) ? data.posts : []) {
-    const handle = p?.author?.handle;
-    const link = bskyPermalink(String(p?.uri ?? ''), String(handle ?? ''));
-    const text = String(p?.record?.text ?? '').replace(/\s+/g, ' ').trim();
-    if (!link || !text || text.length < 40 || seen.has(link)) continue;
-    const created = String(p?.record?.createdAt ?? p?.indexedAt ?? '');
-    if (created && Date.parse(created) < weekAgo) continue;
-    seen.add(link);
-    out.push({
-      id: String(p.uri),
-      url: link,
-      text: text.slice(0, 500),
-      handle: String(handle ?? ''),
-      createdAt: created,
-      likes: Number(p?.likeCount) || 0,
-      reposts: Number(p?.repostCount) || 0,
-    });
+  const out: BskyPost[] = [];
+  const errors: string[] = [];
+
+  for (const q of bskyQueryCandidates(goal, focus)) {
+    if (out.length >= 12) break;
+    const url = `https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(q)}&limit=${Math.min(limit, 100)}&sort=latest`;
+    let data: any;
+    try {
+      const res = await fetchFn(url, {
+        signal: AbortSignal.timeout(20_000),
+        headers: { Accept: 'application/json', 'User-Agent': 'idea-generator-2/0.1.0' },
+      });
+      if (!res.ok) {
+        errors.push(`${q}: HTTP ${res.status}`);
+        continue;
+      }
+      data = await res.json();
+    } catch (e: any) {
+      errors.push(`${q}: ${e?.message ?? String(e)}`);
+      continue;
+    }
+    for (const p of Array.isArray(data?.posts) ? data.posts : []) {
+      const handle = p?.author?.handle;
+      const link = bskyPermalink(String(p?.uri ?? ''), String(handle ?? ''));
+      const text = String(p?.record?.text ?? '').replace(/\s+/g, ' ').trim();
+      if (!link || !text || text.length < 40 || seen.has(link)) continue;
+      const created = String(p?.record?.createdAt ?? p?.indexedAt ?? '');
+      if (created && Date.parse(created) < weekAgo) continue;
+      seen.add(link);
+      out.push({
+        id: String(p.uri),
+        url: link,
+        text: text.slice(0, 500),
+        handle: String(handle ?? ''),
+        createdAt: created,
+        likes: Number(p?.likeCount) || 0,
+        reposts: Number(p?.repostCount) || 0,
+      });
+    }
   }
+
+  if (!out.length && errors.length) throw new Error(`Bluesky search failed (${errors.slice(0, 3).join('; ')})`);
   // Engagement first: a post people argued with is a better trend signal than noise.
   return out.sort((a, b) => b.likes + b.reposts - (a.likes + a.reposts));
 }
