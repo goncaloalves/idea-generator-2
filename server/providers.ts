@@ -98,6 +98,35 @@ export function toPersisted(s: AppSettings): PersistedSettings {
   return rest;
 }
 
+/**
+ * Merge a browser push, protecting what is already configured on the server.
+ *
+ * A browser whose localStorage predates the server-side config pushes pristine
+ * defaults back and would undo the provider endpoint and models that were set
+ * here. Empty base URLs and untouched default model refs therefore never win
+ * over a value the server already has.
+ */
+export function mergeBrowserSettings(raw: any, current: AppSettings): AppSettings {
+  const out = mergeAppSettings(raw, current);
+
+  for (const p of Object.keys(PROVIDERS) as ProviderId[]) {
+    if (typeof raw?.baseUrls?.[p] !== 'string') continue;
+    const incoming = String(raw.baseUrls[p]).trim().replace(/\/+$/, '');
+    if (!incoming && current.baseUrls[p]) out.baseUrls[p] = current.baseUrls[p];
+  }
+
+  for (const r of ROLES) {
+    if (typeof raw?.models?.[r] !== 'string') continue;
+    const incoming = String(raw.models[r]).trim();
+    // Pristine default from a stale browser: keep the configured model instead.
+    if (incoming === DEFAULT_APP_SETTINGS.models[r] && current.models[r] !== incoming) {
+      out.models[r] = current.models[r];
+    }
+  }
+
+  return out;
+}
+
 /** Browser-entered key first, then the environment. */
 export function keyFor(settings: AppSettings, p: ProviderId): string | undefined {
   const k = settings.keys[p] || (PROVIDERS[p].env ? process.env[PROVIDERS[p].env!] : undefined);

@@ -8,7 +8,7 @@ import { extname, join, resolve, sep } from 'node:path';
 import type { Repo, Idea, Board } from './db.ts';
 import { AppError, type Engine } from './engine.ts';
 import type { Autopilot } from './autopilot.ts';
-import { PROVIDERS, keySource, listModels, mergeAppSettings, type AppSettings, type ProviderId } from './providers.ts';
+import { PROVIDERS, keySource, listModels, mergeBrowserSettings, mergeAppSettings, type AppSettings, type ProviderId } from './providers.ts';
 import { fitness, medal, scoreSum } from '../public/js/score.js';
 
 export type Runtime = {
@@ -184,9 +184,9 @@ export function createHandler({ repo, engine, autopilot, runtime, publicDir }: D
     // ---- app settings: owned by the browser, held here in memory only
     ['PUT', /^\/api\/runtime-settings$/, (_p, b) => {
       // Merge onto what is already loaded (from data/settings.json) rather than
-      // onto the built-in defaults, so a partial push from the browser cannot
-      // wipe the custom provider base URL set earlier.
-      runtime.set(mergeAppSettings(b, runtime.get()));
+      // onto the built-in defaults, so a partial or stale push from a browser
+      // cannot wipe the custom provider base URL or the configured models.
+      runtime.set(mergeBrowserSettings(b, runtime.get()));
       return providerStatus();
     }],
     ['GET', /^\/api\/providers$/, () => providerStatus()],

@@ -4,7 +4,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import {
-  DEFAULT_APP_SETTINGS, extractJson, keyFor, listModels, makeChat, mergeAppSettings, parseModel, ProviderError, toPersisted, type AppSettings,
+  DEFAULT_APP_SETTINGS, extractJson, keyFor, listModels, makeChat, mergeAppSettings, mergeBrowserSettings, parseModel, ProviderError, toPersisted, type AppSettings,
 } from '../server/providers.ts';
 
 type Seen = { path: string; headers: Record<string, any>; body: any };
@@ -188,4 +188,27 @@ test('settings merge onto a base so a restart keeps the custom base URL', () => 
   assert.equal(afterPush.models.judge, 'openrouter:x/y');
   // And a full default base still resets cleanly when asked explicitly.
   assert.equal(mergeAppSettings({}, DEFAULT_APP_SETTINGS).baseUrls.custom, '');
+});
+
+test('a stale browser push cannot wipe the configured base URL or models', () => {
+  const configured = mergeAppSettings({
+    baseUrls: { custom: 'https://opencode.ai/zen/go/v1' },
+    models: { judge: 'custom:beam-free', bsky: 'custom:beam-free' },
+  });
+  // What an old localStorage sends: empty custom base and pristine defaults.
+  const stale = {
+    baseUrls: { custom: '' },
+    models: { judge: DEFAULT_APP_SETTINGS.models.judge, bsky: DEFAULT_APP_SETTINGS.models.bsky },
+  };
+  const after = mergeBrowserSettings(stale, configured);
+  assert.equal(after.baseUrls.custom, 'https://opencode.ai/zen/go/v1');
+  assert.equal(after.models.judge, 'custom:beam-free');
+  assert.equal(after.models.bsky, 'custom:beam-free');
+});
+
+test('a deliberate non-default change still applies over the configured value', () => {
+  const configured = mergeAppSettings({ baseUrls: { custom: 'https://opencode.ai/zen/go/v1' }, models: { judge: 'custom:beam-free' } });
+  const after = mergeBrowserSettings({ baseUrls: { custom: 'http://box:1234/v1' }, models: { judge: 'custom:mimo-v2.6-flash' } }, configured);
+  assert.equal(after.baseUrls.custom, 'http://box:1234/v1');
+  assert.equal(after.models.judge, 'custom:mimo-v2.6-flash');
 });

@@ -48,6 +48,10 @@ npm run calibrate    # real judge vs. reference ideas (~$0.07); -- --model ollam
 
 All app settings live in the browser (localStorage), including API keys, models per role, provider addresses, the projects folder and the global budget. The browser pushes them to the local server. API keys are kept in memory only and never written to disk; everything else (provider base URLs, models per role, projects folder, global budget) is persisted to `data/settings.json` so it survives a restart, and the server is usable straight after a boot without waiting for a browser. Environment variables (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY`, `CUSTOM_API_KEY`) work as a fallback. Set `SETTINGS_FILE` to keep that file somewhere else.
 
+Secrets for the systemd unit live in `data/service.env` (gitignored, `chmod 600`); `scripts/start-8300.sh` sources it and falls back to `/tmp/idea-env`. Keep secrets out of `/tmp`, which does not survive a reboot.
+
+A browser whose localStorage predates this config pushes pristine defaults when it loads. Those cannot undo the server config: an empty provider base URL and a model still at its built-in default never overwrite a value already configured. A deliberate change (anything that differs from the built-in default) applies normally.
+
 The server listens on 127.0.0.1 only. There is no login, and keys pass through it, so **do not expose it** as is.
 
 ## License
