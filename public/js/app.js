@@ -639,6 +639,7 @@ async function boardSettingsDialog() {
   const rOn = h('input', { type: 'checkbox', checked: c.researchers.research.enabled }), rFocus = inp(c.researchers.research.focus, { placeholder: t('focusPh') });
   const mode = h('select', {}, h('option', { value: 'manual', selected: c.mode === 'manual' }, t('manual')), h('option', { value: 'auto', selected: c.mode === 'auto' }, t('auto')));
   const pace = inp(c.autopilotSeconds, { type: 'number', min: 3, max: 3600 });
+  const maxGen = inp(c.maxGenerations ?? 5, { type: 'number', min: 1, max: 50 });
   const sph = inp(c.rate.stepsPerHour, { type: 'number', min: 1, max: 3600 });
   const usd = inp(c.rate.usdPerDay, { type: 'number', min: 0, step: 0.1 });
   const models = Object.fromEntries(ROLES.map((r) => [r, inp(c.models?.[r] ?? '', { placeholder: S.settings.models[r], list: 'model-list' })]));
@@ -673,7 +674,8 @@ async function boardSettingsDialog() {
       h('label', { class: 'check' }, bOn, t('bskyScout')), field(t('focus'), bFocus),
       h('label', { class: 'check' }, rOn, t('researchScout')), field(t('focus'), rFocus)),
     h('fieldset', {}, h('legend', {}, t('autopilot')),
-      field(t('mode'), mode), h('div', { class: 'grid3' }, field(t('pace'), pace), field(t('stepsPerHour'), sph), field(t('usdPerDay'), usd)),
+      h('div', { class: 'grid2' }, field(t('mode'), mode), field(t('maxGenerations'), maxGen)),
+      h('div', { class: 'grid3' }, field(t('pace'), pace), field(t('stepsPerHour'), sph), field(t('usdPerDay'), usd)),
       h('small', { class: 'muted' }, t('rateNote'))),
     h('fieldset', {}, h('legend', {}, t('models')), h('small', { class: 'muted' }, t('modelsBoardNote')),
       h('div', { class: 'grid2' }, ROLES.map((r) => field(t(`role_${r}`), models[r])))),
@@ -702,7 +704,8 @@ async function boardSettingsDialog() {
             lang: lang.value, flowName: flowName.value, flow: { system: sys.value, expand: exp.value, combine: comb.value },
             judgeGuidance: guidance.value, autoProjectOnGold: autoProj.checked,
             researchers: { x: { enabled: xOn.checked, focus: xFocus.value }, bsky: { enabled: bOn.checked, focus: bFocus.value }, research: { enabled: rOn.checked, focus: rFocus.value } },
-            mode: mode.value, autopilotSeconds: Number(pace.value), rate: { stepsPerHour: Number(sph.value), usdPerDay: Number(usd.value) },
+            mode: mode.value, autopilotSeconds: Number(pace.value), maxGenerations: Number(maxGen.value),
+            rate: { stepsPerHour: Number(sph.value), usdPerDay: Number(usd.value) },
             models: Object.fromEntries(ROLES.map((r) => [r, models[r].value])),
           },
         });
@@ -768,6 +771,7 @@ function appSettingsDialog() {
     h('option', { value: 'manual', selected: ap.mode === 'manual' }, t('manual')),
     h('option', { value: 'auto', selected: ap.mode === 'auto' }, t('auto')));
   const apSeconds = h('input', { type: 'number', min: 3, max: 3600, value: ap.seconds });
+  const apMaxGen = h('input', { type: 'number', min: 1, max: 50, value: ap.maxGenerations });
   const apSph = h('input', { type: 'number', min: 1, max: 3600, value: ap.stepsPerHour });
   const apUsd = h('input', { type: 'number', min: 0, step: 0.1, value: ap.usdPerDay });
 
@@ -782,6 +786,7 @@ function appSettingsDialog() {
     s.autopilot = {
       mode: apMode.value === 'auto' ? 'auto' : 'manual',
       seconds: Number(apSeconds.value),
+      maxGenerations: Number(apMaxGen.value),
       stepsPerHour: Number(apSph.value),
       usdPerDay: Number(apUsd.value),
     };
@@ -798,7 +803,7 @@ function appSettingsDialog() {
     h('fieldset', {}, h('legend', {}, 'Claude Code'), field(t('projectsRoot'), root)),
     h('fieldset', {}, h('legend', {}, t('autopilot')), field(t('globalBudget'), budget, spend),
       h('small', { class: 'muted' }, t('autopilotDefaultsNote')),
-      field(t('mode'), apMode),
+      h('div', { class: 'grid2' }, field(t('mode'), apMode), field(t('maxGenerations'), apMaxGen)),
       h('div', { class: 'grid3' }, field(t('pace'), apSeconds), field(t('stepsPerHour'), apSph), field(t('usdPerDay'), apUsd)),
       h('small', { class: 'muted' }, t('rateNote'))),
   ], [

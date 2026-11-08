@@ -132,4 +132,13 @@ test('autoStep with the real engine: judge first, grow a small pool, then breed'
   for (let i = 0; i < 6; i++) stepsAfterLead.push((await engine.autoStep(board.id)).did);
   assert.ok(stepsAfterLead.includes('seed'), `expected autoStep to seed the unused lead: ${stepsAfterLead.join(',')}`);
   assert.ok(repo.listIdeas(board.id).some((i) => i.title === 'Bluesky Trend Seed' && i.judgedAt));
+
+  // Lowering maxGenerations to 1 on a board where all seeds are already expanded stops breeding.
+  const capped = repo.createBoard({ title: 'Capped', config: { maxGenerations: 1 } });
+  const seedIdea = repo.insertIdea({ boardId: capped.id, title: 'S1', pitch: '', kind: 'seed', x: 0, y: 0, generation: 0 });
+  assert.equal((await engine.autoStep(capped.id)).did, 'judge');
+  assert.equal((await engine.autoStep(capped.id)).did, 'expand', 'gen 0 expands to gen 1');
+  assert.ok(repo.listIdeas(capped.id).every((i) => i.generation <= 1));
+  assert.deepEqual(await engine.autoStep(capped.id), { did: 'idle', reason: 'nothing_to_do' }, 'gen 1 ideas do not breed past maxGenerations=1');
+  assert.ok(repo.getIdea(seedIdea.id));
 });

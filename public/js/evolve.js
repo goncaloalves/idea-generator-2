@@ -97,12 +97,22 @@ function tournament(pool, k, rng, scoreFn = fitness) {
  * @param {Array} ideas  ideas on the board (with id, kind, scores)
  * @param {Array} edges  {from, to}
  * @param {object} opts  rng, busy (Set of ids being worked on), inFlight (Set of pair keys),
- *                       mutationRate, k (tournament size), maxOverlap (max lineage Jaccard overlap)
+ *                       mutationRate, k (tournament size), maxOverlap (max lineage Jaccard overlap),
+ *                       maxGenerations (highest generation autopilot may create; parents must have generation < maxGenerations)
  * @returns {{type:'combine', a, b} | {type:'expand', idea} | null}
  */
 export function nextMove(ideas, edges, opts = {}) {
-  const { rng = Math.random, busy = new Set(), inFlight = new Set(), mutationRate = 0.35, k = 3, maxOverlap = 0.45 } = opts;
-  const pool = population(ideas).filter((i) => !busy.has(i.id));
+  const {
+    rng = Math.random,
+    busy = new Set(),
+    inFlight = new Set(),
+    mutationRate = 0.35,
+    k = 3,
+    maxOverlap = 0.45,
+    maxGenerations = Infinity,
+  } = opts;
+  const genCap = Number.isFinite(maxGenerations) && maxGenerations > 0 ? maxGenerations : Infinity;
+  const pool = population(ideas).filter((i) => !busy.has(i.id) && (i.generation || 0) < genCap);
   const expanded = expandedIds(ideas, edges);
   const used = usedPairs(ideas, edges);
   const ancestors = ancestorsOf(ideas, edges);

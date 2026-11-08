@@ -19,6 +19,8 @@ export type AutopilotDefaults = {
   seconds: number;
   stepsPerHour: number;
   usdPerDay: number;
+  /** Highest generation autopilot may create on a board (1–50). */
+  maxGenerations: number;
 };
 
 export type AppSettings = {
@@ -46,7 +48,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   models: { distill: SONNET, expand: SONNET, combine: SONNET, judge: SONNET, summary: SONNET, research: SONNET, x: 'openrouter:x-ai/grok-4.3', bsky: SONNET, brief: SONNET },
   projectsRoot: '~/Projekt/idea-projects',
   maxUsdPerDay: 5,
-  autopilot: { mode: 'manual', seconds: 10, stepsPerHour: 60, usdPerDay: 1 },
+  autopilot: { mode: 'manual', seconds: 10, stepsPerHour: 60, usdPerDay: 1, maxGenerations: 5 },
 };
 
 type ProviderDef = {
@@ -112,6 +114,8 @@ export function mergeAppSettings(raw: any, base: AppSettings = DEFAULT_APP_SETTI
   if (Number.isFinite(sph)) out.autopilot.stepsPerHour = Math.min(3600, Math.max(1, Math.round(sph)));
   const apUsd = num(ap.usdPerDay);
   if (Number.isFinite(apUsd)) out.autopilot.usdPerDay = Math.min(1000, Math.max(0, Math.round(apUsd * 100) / 100));
+  const apMaxGen = num(ap.maxGenerations ?? raw?.maxGenerations);
+  if (Number.isFinite(apMaxGen)) out.autopilot.maxGenerations = Math.min(50, Math.max(1, Math.round(apMaxGen)));
 
   return out;
 }
@@ -182,7 +186,8 @@ export function mergeBrowserSettings(raw: any, current: AppSettings): AppSetting
       ap.mode === d.mode &&
       Number(ap.seconds) === d.seconds &&
       Number(ap.stepsPerHour) === d.stepsPerHour &&
-      Number(ap.usdPerDay) === d.usdPerDay;
+      Number(ap.usdPerDay) === d.usdPerDay &&
+      (ap.maxGenerations === undefined || Number(ap.maxGenerations) === d.maxGenerations);
     if (pristine) out.autopilot = { ...current.autopilot };
   }
 

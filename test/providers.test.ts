@@ -251,42 +251,44 @@ test('a passive sync may only carry keys, never configuration', () => {
   const configured = mergeAppSettings({
     baseUrls: { custom: 'https://opencode.ai/zen/go/v1' },
     models: { judge: 'opencode-go:claude-haiku-5-5' },
-    autopilot: { mode: 'auto', seconds: 60, stepsPerHour: 12, usdPerDay: 3 },
+    autopilot: { mode: 'auto', seconds: 60, stepsPerHour: 12, usdPerDay: 3, maxGenerations: 4 },
   });
   // What an open page sends on reconnect: its own old config, no explicit save.
   const passive = {
     keys: { openrouter: 'user-key' },
     baseUrls: { custom: '' },
     models: { judge: 'openrouter:openrouter/free' },
-    autopilot: { mode: 'manual', seconds: 10, stepsPerHour: 60, usdPerDay: 1 },
+    autopilot: { mode: 'manual', seconds: 10, stepsPerHour: 60, usdPerDay: 1, maxGenerations: 5 },
   };
   const after = mergeBrowserSettings(passive, configured);
   assert.equal(after.baseUrls.custom, 'https://opencode.ai/zen/go/v1');
   assert.equal(after.models.judge, 'opencode-go:claude-haiku-5-5');
-  assert.deepEqual(after.autopilot, { mode: 'auto', seconds: 60, stepsPerHour: 12, usdPerDay: 3 });
+  assert.deepEqual(after.autopilot, { mode: 'auto', seconds: 60, stepsPerHour: 12, usdPerDay: 3, maxGenerations: 4 });
   // The key is still adopted: only the browser has it.
   assert.equal(after.keys.openrouter, 'user-key');
 });
 
 test('autopilot defaults are validated and clamped', () => {
-  const s = mergeAppSettings({ autopilot: { mode: 'auto', seconds: 1, stepsPerHour: 99999, usdPerDay: -3 } });
+  const s = mergeAppSettings({ autopilot: { mode: 'auto', seconds: 1, stepsPerHour: 99999, usdPerDay: -3, maxGenerations: 0 } });
   assert.equal(s.autopilot.mode, 'auto');
   assert.equal(s.autopilot.seconds, 3, 'below the 3s floor is clamped');
   assert.equal(s.autopilot.stepsPerHour, 3600, 'above the ceiling is clamped');
   assert.equal(s.autopilot.usdPerDay, 0, 'negative budget clamps to 0');
+  assert.equal(s.autopilot.maxGenerations, 1, 'below 1 clamps to 1');
+  assert.equal(mergeAppSettings({ autopilot: { maxGenerations: 999 } }).autopilot.maxGenerations, 50, 'above 50 clamps to 50');
   // Junk never throws and leaves the defaults alone.
-  const junk = mergeAppSettings({ autopilot: { mode: 'nope', seconds: 'x', stepsPerHour: null, usdPerDay: undefined } });
+  const junk = mergeAppSettings({ autopilot: { mode: 'nope', seconds: 'x', stepsPerHour: null, usdPerDay: undefined, maxGenerations: 'x' } });
   assert.deepEqual(junk.autopilot, DEFAULT_APP_SETTINGS.autopilot);
   // A missing block keeps the defaults (older settings.json files).
   assert.deepEqual(mergeAppSettings({}).autopilot, DEFAULT_APP_SETTINGS.autopilot);
 });
 
 test('a stale push cannot reset the configured autopilot defaults', () => {
-  const configured = mergeAppSettings({ autopilot: { mode: 'auto', seconds: 60, stepsPerHour: 100, usdPerDay: 2 } });
+  const configured = mergeAppSettings({ autopilot: { mode: 'auto', seconds: 60, stepsPerHour: 100, usdPerDay: 2, maxGenerations: 8 } });
   const stale = { autopilot: { ...DEFAULT_APP_SETTINGS.autopilot } };
   const after = mergeBrowserSettings(stale, configured);
-  assert.deepEqual(after.autopilot, { mode: 'auto', seconds: 60, stepsPerHour: 100, usdPerDay: 2 });
+  assert.deepEqual(after.autopilot, { mode: 'auto', seconds: 60, stepsPerHour: 100, usdPerDay: 2, maxGenerations: 8 });
   // A deliberate change still lands.
-  const changed = mergeBrowserSettings({ __userEdit: true, autopilot: { mode: 'manual', seconds: 120, stepsPerHour: 5, usdPerDay: 0.5 } }, configured);
-  assert.deepEqual(changed.autopilot, { mode: 'manual', seconds: 120, stepsPerHour: 5, usdPerDay: 0.5 });
+  const changed = mergeBrowserSettings({ __userEdit: true, autopilot: { mode: 'manual', seconds: 120, stepsPerHour: 5, usdPerDay: 0.5, maxGenerations: 3 } }, configured);
+  assert.deepEqual(changed.autopilot, { mode: 'manual', seconds: 120, stepsPerHour: 5, usdPerDay: 0.5, maxGenerations: 3 });
 });

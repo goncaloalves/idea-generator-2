@@ -483,7 +483,7 @@ export function createEngine(deps: Deps) {
      * Awaits its own judgements so the next step sees the scores.
      */
     async autoStep(boardId: number): Promise<{ did: 'idle' | 'judge' | 'seed' | 'expand' | 'combine'; reason?: string; ids?: number[] }> {
-      mustBoard(boardId);
+      const board = mustBoard(boardId);
       const ideas = repo.listIdeas(boardId);
       if (!ideas.length) return { did: 'idle', reason: 'empty' };
       const judgeAll = async (ids: number[]) => {
@@ -499,7 +499,10 @@ export function createEngine(deps: Deps) {
       const unusedLead = repo.listLeads(boardId).find((l) => l.ideaId == null);
       const lastSeedIdx = ideas.findLastIndex((i) => i.kind === 'seed' || i.kind === 'guest');
       const sinceLastSeed = lastSeedIdx >= 0 ? ideas.length - 1 - lastSeedIdx : ideas.length;
-      const move = nextMove(ideas, repo.listEdges(boardId), { busy: judging });
+      const move = nextMove(ideas, repo.listEdges(boardId), {
+        busy: judging,
+        maxGenerations: board.config.maxGenerations,
+      });
       if (unusedLead && (!move || sinceLastSeed >= 6)) {
         const pos = besideBoard(ideas);
         const idea = repo.insertIdea({

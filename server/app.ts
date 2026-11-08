@@ -219,6 +219,7 @@ export function createHandler({ repo, engine, autopilot, runtime, publicDir }: D
             lang,
             mode: ap.mode,
             autopilotSeconds: ap.seconds,
+            maxGenerations: ap.maxGenerations,
             rate: { stepsPerHour: ap.stepsPerHour, usdPerDay: ap.usdPerDay },
           },
         }),

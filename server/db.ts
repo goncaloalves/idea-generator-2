@@ -151,6 +151,8 @@ export type BoardConfig = {
   mode: 'manual' | 'auto';
   /** Seconds between autopilot steps (pace). */
   autopilotSeconds: number;
+  /** Highest generation autopilot may create on this board (1–50). */
+  maxGenerations: number;
   rate: { stepsPerHour: number; usdPerDay: number };
   autoProjectOnGold: boolean;
   /** Per-role model overrides ("provider:model"); empty = the app-wide setting. */
@@ -170,6 +172,7 @@ export function defaultConfig(template = DEFAULT_TEMPLATES[0]): BoardConfig {
     lang: 'sv',
     mode: 'manual',
     autopilotSeconds: 10,
+    maxGenerations: 5,
     rate: { stepsPerHour: 60, usdPerDay: 1 },
     autoProjectOnGold: true,
     models: {},
@@ -181,13 +184,15 @@ export function mergeConfig(base: BoardConfig, raw: any): BoardConfig {
   const s = (v: unknown, max: number, fallback: string) => (typeof v === 'string' ? v.trim().slice(0, max) : fallback);
   const nonEmpty = (v: unknown, max: number, fallback: string) => s(v, max, fallback) || fallback;
   const b = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
+  const num = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN);
   const r = raw && typeof raw === 'object' ? raw : {};
   const rx = r.researchers?.x ?? {};
   const rb = r.researchers?.bsky ?? {};
   const rr = r.researchers?.research ?? {};
-  const secs = Number(r.autopilotSeconds);
-  const sph = Number(r.rate?.stepsPerHour);
-  const usd = Number(r.rate?.usdPerDay);
+  const secs = num(r.autopilotSeconds);
+  const maxGen = num(r.maxGenerations);
+  const sph = num(r.rate?.stepsPerHour);
+  const usd = num(r.rate?.usdPerDay);
   const models: BoardConfig['models'] = { ...base.models };
   for (const role of MODEL_ROLES) {
     if (typeof r.models?.[role] === 'string') {
@@ -215,6 +220,7 @@ export function mergeConfig(base: BoardConfig, raw: any): BoardConfig {
     lang: r.lang === 'en' || r.lang === 'sv' ? r.lang : base.lang,
     mode: r.mode === 'auto' || r.mode === 'manual' ? r.mode : base.mode,
     autopilotSeconds: Number.isFinite(secs) ? Math.min(3600, Math.max(3, Math.round(secs))) : base.autopilotSeconds,
+    maxGenerations: Number.isFinite(maxGen) ? Math.min(50, Math.max(1, Math.round(maxGen))) : base.maxGenerations,
     rate: {
       stepsPerHour: Number.isFinite(sph) ? Math.min(3600, Math.max(1, Math.round(sph))) : base.rate.stepsPerHour,
       usdPerDay: Number.isFinite(usd) ? Math.min(1000, Math.max(0, Math.round(usd * 100) / 100)) : base.rate.usdPerDay,

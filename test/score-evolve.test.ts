@@ -170,3 +170,19 @@ test('saturatedTerms flags words overused across board titles', () => {
   assert.ok(sat.includes('timer') && sat.includes('loop'), `expected timer & loop in ${sat.join(',')}`);
   assert.ok(!sat.includes('kitchen'), 'rare words are not flagged');
 });
+
+test('maxGenerations caps which ideas can be expanded or combined', () => {
+  const ideas = [
+    idea(1, 10, { kind: 'seed', generation: 0 }),
+    idea(2, 12, { kind: 'expand', generation: 2 }),
+    idea(3, 13, { kind: 'combine', generation: 3 }),
+  ];
+  // With maxGenerations: 2, only generation 0 and 1 are eligible parents; gen 2 and 3 are excluded.
+  const m = nextMove(ideas, [], { rng: rngFrom(1), maxGenerations: 2 });
+  assert.equal(m?.type, 'expand');
+  assert.equal(m.idea.id, 1, 'only generation < 2 can be expanded');
+
+  // Once idea 1 is also expanded and no other idea is below generation 2, nextMove returns null.
+  const edges = [{ from: 1, to: 2 }];
+  assert.equal(nextMove(ideas, edges, { rng: rngFrom(1), maxGenerations: 2 }), null);
+});

@@ -158,17 +158,23 @@ test('each role uses its own model: app-wide setting, overridden per board', asy
 });
 
 test('board config is validated and clamped', async () => {
+  await api('PUT', '/api/runtime-settings', { ...settings, autopilot: { ...settings.autopilot, maxGenerations: 7 }, __userEdit: true });
   const board = await newBoard();
+  assert.equal(board.config.maxGenerations, 7, 'new board inherits global maxGenerations default');
   const { data } = await api('PATCH', `/api/boards/${board.id}`, {
-    config: { mode: 'chaos', rate: { stepsPerHour: 0, usdPerDay: -3 }, autopilotSeconds: 1, flow: { system: '' }, lang: 'de' },
+    config: { mode: 'chaos', rate: { stepsPerHour: 0, usdPerDay: -3 }, autopilotSeconds: 1, maxGenerations: 0, flow: { system: '' }, lang: 'de' },
   });
   const c = data.board.config;
   assert.equal(c.mode, 'manual');
   assert.equal(c.rate.stepsPerHour, 1);
   assert.equal(c.rate.usdPerDay, 0);
   assert.equal(c.autopilotSeconds, 3);
+  assert.equal(c.maxGenerations, 1, 'maxGenerations below 1 is clamped to 1');
+  const { data: data2 } = await api('PATCH', `/api/boards/${board.id}`, { config: { maxGenerations: 999 } });
+  assert.equal(data2.board.config.maxGenerations, 50, 'maxGenerations above 50 is clamped to 50');
   assert.ok(c.flow.system.length > 20, 'an empty prompt keeps the old one');
   assert.equal(c.lang, 'sv');
+  settings = { ...structuredClone(DEFAULT_APP_SETTINGS), projectsRoot };
 });
 
 test('the judge turns gold into a Claude Code project; a board can switch that off', async () => {
