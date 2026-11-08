@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS edges (
 CREATE TABLE IF NOT EXISTS leads (
   id INTEGER PRIMARY KEY,
   board_id INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
-  source TEXT NOT NULL CHECK (source IN ('x', 'research')),
+  source TEXT NOT NULL CHECK (source IN ('x', 'bsky', 'research')),
   title TEXT NOT NULL,
   summary TEXT NOT NULL DEFAULT '',
   hook TEXT NOT NULL DEFAULT '',
@@ -134,13 +134,17 @@ export const DEFAULT_TEMPLATES = [
 ];
 
 export type Flow = { system: string; expand: string; combine: string };
-const MODEL_ROLES = ['distill', 'expand', 'combine', 'judge', 'summary', 'research', 'x', 'brief'] as const;
+const MODEL_ROLES = ['distill', 'expand', 'combine', 'judge', 'summary', 'research', 'x', 'bsky', 'brief'] as const;
 
 export type BoardConfig = {
   flowName: string;
   flow: Flow;
   judgeGuidance: string;
-  researchers: { x: { enabled: boolean; focus: string }; research: { enabled: boolean; focus: string } };
+  researchers: {
+    x: { enabled: boolean; focus: string };
+    bsky: { enabled: boolean; focus: string };
+    research: { enabled: boolean; focus: string };
+  };
   /** Fallback language for generated text ('sv' | 'en'); ideas otherwise follow their seed's language. */
   lang: 'sv' | 'en';
   /** manual: people drive. auto: the server evolves the board on its own, within the limits below. */
@@ -158,7 +162,11 @@ export function defaultConfig(template = DEFAULT_TEMPLATES[0]): BoardConfig {
     flowName: template.name,
     flow: { system: template.system, expand: template.expand, combine: template.combine },
     judgeGuidance: '',
-    researchers: { x: { enabled: true, focus: '' }, research: { enabled: true, focus: '' } },
+    researchers: {
+      x: { enabled: true, focus: '' },
+      bsky: { enabled: true, focus: '' },
+      research: { enabled: true, focus: '' },
+    },
     lang: 'sv',
     mode: 'manual',
     autopilotSeconds: 10,
@@ -175,6 +183,7 @@ export function mergeConfig(base: BoardConfig, raw: any): BoardConfig {
   const b = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
   const r = raw && typeof raw === 'object' ? raw : {};
   const rx = r.researchers?.x ?? {};
+  const rb = r.researchers?.bsky ?? {};
   const rr = r.researchers?.research ?? {};
   const secs = Number(r.autopilotSeconds);
   const sph = Number(r.rate?.stepsPerHour);
@@ -197,6 +206,7 @@ export function mergeConfig(base: BoardConfig, raw: any): BoardConfig {
     judgeGuidance: s(r.judgeGuidance, 4000, base.judgeGuidance),
     researchers: {
       x: { enabled: b(rx.enabled, base.researchers.x.enabled), focus: s(rx.focus, 300, base.researchers.x.focus) },
+      bsky: { enabled: b(rb.enabled, base.researchers.bsky.enabled), focus: s(rb.focus, 300, base.researchers.bsky.focus) },
       research: {
         enabled: b(rr.enabled, base.researchers.research.enabled),
         focus: s(rr.focus, 300, base.researchers.research.focus),
@@ -256,7 +266,7 @@ export type BoardSummary = {
 };
 export type Template = { id: number; name: string; system: string; expand: string; combine: string; sort: number };
 export type Lead = {
-  id: number; boardId: number; source: 'x' | 'research'; title: string; summary: string; hook: string;
+  id: number; boardId: number; source: 'x' | 'bsky' | 'research'; title: string; summary: string; hook: string;
   url: string | null; meta: Record<string, unknown>; ideaId: number | null; fetchedAt: string;
 };
 
@@ -326,11 +336,47 @@ const leadFromRow = (r: any): Lead => ({
   fetchedAt: r.fetched_at,
 });
 
+/**
+ * Older databases have a leads CHECK constraint that only allows ('x', 'research').
+ * SQLite cannot alter a CHECK, so rebuild the table once, keeping every row.
+ */
+function migrateLeadsSource(db: DatabaseSync) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='leads'").get() as { sql?: string } | undefined;
+  if (!row?.sql || row.sql.includes("'bsky'")) return;
+  db.exec('BEGIN');
+  try {
+    db.exec(`
+      CREATE TABLE leads_new (
+        id INTEGER PRIMARY KEY,
+        board_id INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+        source TEXT NOT NULL CHECK (source IN ('x', 'bsky', 'research')),
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        hook TEXT NOT NULL DEFAULT '',
+        url TEXT,
+        meta TEXT NOT NULL DEFAULT '{}',
+        idea_id INTEGER REFERENCES ideas(id) ON DELETE SET NULL,
+        fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO leads_new (id, board_id, source, title, summary, hook, url, meta, idea_id, fetched_at)
+        SELECT id, board_id, source, title, summary, hook, url, meta, idea_id, fetched_at FROM leads;
+      DROP TABLE leads;
+      ALTER TABLE leads_new RENAME TO leads;
+      CREATE INDEX IF NOT EXISTS leads_board ON leads(board_id);
+    `);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
 export function openDb(file: string) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA foreign_keys = ON;');
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  migrateLeadsSource(db);
 
   if ((db.prepare('SELECT COUNT(*) AS n FROM templates').get() as any).n === 0) {
     const ins = db.prepare('INSERT INTO templates (name, system, expand, combine, sort) VALUES (?, ?, ?, ?, ?)');

@@ -263,7 +263,7 @@ export function createHandler({ repo, engine, autopilot, runtime, publicDir }: D
     ['POST', /^\/api\/ideas\/(\d+)\/spinoff$/, ([id]) => engine.spinoff(+id)],
 
     // ---- leads
-    ['POST', /^\/api\/boards\/(\d+)\/leads\/(x|research)$/, ([id, source]) => engine.refreshLeads(+id, source as 'x' | 'research')],
+    ['POST', /^\/api\/boards\/(\d+)\/leads\/(x|bsky|research)$/, ([id, source]) => engine.refreshLeads(+id, source as 'x' | 'bsky' | 'research')],
     ['POST', /^\/api\/leads\/(\d+)\/seed$/, ([id], b) => engine.seedLead(+id, b)],
     ['DELETE', /^\/api\/leads\/(\d+)$/, ([id]) => ({ ok: repo.deleteLead(+id) })],
 

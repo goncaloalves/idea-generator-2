@@ -548,7 +548,7 @@ function renderLeads() {
   const list = S.leads.filter((l) => l.source === src);
   const tab = (id, label) => h('button', { class: `tab ${src === id ? 'on' : ''}`, role: 'tab', 'aria-selected': String(src === id), onclick: () => { S.leadsTab = id; renderLeads(); } }, label);
   clear(root,
-    h('div', { class: 'tabs', role: 'tablist' }, tab('x', t('leadsX')), tab('research', t('leadsResearch'))),
+    h('div', { class: 'tabs', role: 'tablist' }, tab('x', t('leadsX')), tab('bsky', t('leadsBsky')), tab('research', t('leadsResearch'))),
     !cfg.enabled
       ? h('p', { class: 'muted' }, t('researcherOff'))
       : [
@@ -635,6 +635,7 @@ async function boardSettingsDialog() {
   const guidance = area(c.judgeGuidance, 2, { placeholder: t('judgeGuidancePh') });
   const autoProj = h('input', { type: 'checkbox', checked: c.autoProjectOnGold });
   const xOn = h('input', { type: 'checkbox', checked: c.researchers.x.enabled }), xFocus = inp(c.researchers.x.focus, { placeholder: t('focusPh') });
+  const bOn = h('input', { type: 'checkbox', checked: c.researchers.bsky.enabled }), bFocus = inp(c.researchers.bsky.focus, { placeholder: t('focusPh') });
   const rOn = h('input', { type: 'checkbox', checked: c.researchers.research.enabled }), rFocus = inp(c.researchers.research.focus, { placeholder: t('focusPh') });
   const mode = h('select', {}, h('option', { value: 'manual', selected: c.mode === 'manual' }, t('manual')), h('option', { value: 'auto', selected: c.mode === 'auto' }, t('auto')));
   const pace = inp(c.autopilotSeconds, { type: 'number', min: 3, max: 3600 });
@@ -669,6 +670,7 @@ async function boardSettingsDialog() {
       h('label', { class: 'check' }, autoProj, t('autoProject'))),
     h('fieldset', {}, h('legend', {}, t('researchers')),
       h('label', { class: 'check' }, xOn, t('xScout')), field(t('focus'), xFocus),
+      h('label', { class: 'check' }, bOn, t('bskyScout')), field(t('focus'), bFocus),
       h('label', { class: 'check' }, rOn, t('researchScout')), field(t('focus'), rFocus)),
     h('fieldset', {}, h('legend', {}, t('autopilot')),
       field(t('mode'), mode), h('div', { class: 'grid3' }, field(t('pace'), pace), field(t('stepsPerHour'), sph), field(t('usdPerDay'), usd)),
@@ -699,7 +701,7 @@ async function boardSettingsDialog() {
           config: {
             lang: lang.value, flowName: flowName.value, flow: { system: sys.value, expand: exp.value, combine: comb.value },
             judgeGuidance: guidance.value, autoProjectOnGold: autoProj.checked,
-            researchers: { x: { enabled: xOn.checked, focus: xFocus.value }, research: { enabled: rOn.checked, focus: rFocus.value } },
+            researchers: { x: { enabled: xOn.checked, focus: xFocus.value }, bsky: { enabled: bOn.checked, focus: bFocus.value }, research: { enabled: rOn.checked, focus: rFocus.value } },
             mode: mode.value, autopilotSeconds: Number(pace.value), rate: { stepsPerHour: Number(sph.value), usdPerDay: Number(usd.value) },
             models: Object.fromEntries(ROLES.map((r) => [r, models[r].value])),
           },

@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import type { Repo, Idea, Board } from './db.ts';
 import { makeLLM } from './llm.ts';
 import { asUrl, fetchPage as realFetchPage } from './extract.ts';
-import { fetchPapers as realFetchPapers, researchLeads, xLeads } from './leads.ts';
+import { bskyLeads, fetchBskyPosts, fetchPapers as realFetchPapers, researchLeads, xLeads } from './leads.ts';
 import { writeBrief, writeProject } from './project.ts';
 import { ProviderError, type AppSettings, type ChatFn, type Role } from './providers.ts';
 import { fitness, isJudged, medal, scoreSum } from '../public/js/score.js';
@@ -400,7 +400,7 @@ export function createEngine(deps: Deps) {
     },
 
     // ---- leads: each board's own researchers
-    async refreshLeads(boardId: number, source: 'x' | 'research') {
+    async refreshLeads(boardId: number, source: 'x' | 'bsky' | 'research') {
       const board = mustBoard(boardId);
       const lang = board.config.lang;
       const focus = board.config.researchers[source].focus;
@@ -408,6 +408,14 @@ export function createEngine(deps: Deps) {
       let r: { leads: any[]; dropped?: number };
       if (source === 'x') {
         r = await call(board.id, () => xLeads({ chat: deps.chat, model: modelFor(board, 'x'), goal: topic, lang }));
+      } else if (source === 'bsky') {
+        let posts;
+        try {
+          posts = await fetchBskyPosts(topic || board.goal);
+        } catch (e: any) {
+          throw new AppError(502, 'bsky_failed', e?.message ?? String(e));
+        }
+        r = await call(board.id, () => bskyLeads({ chat: deps.chat, model: modelFor(board, 'bsky'), goal: topic, lang, posts }));
       } else {
         let papers;
         try {

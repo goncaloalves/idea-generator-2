@@ -9,8 +9,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 
 export type ProviderId = 'openrouter' | 'anthropic' | 'openai' | 'azure' | 'ollama' | 'mlx' | 'lmstudio' | 'custom';
-export type Role = 'distill' | 'expand' | 'combine' | 'judge' | 'summary' | 'research' | 'x' | 'brief';
-export const ROLES: Role[] = ['distill', 'expand', 'combine', 'judge', 'summary', 'research', 'x', 'brief'];
+export type Role = 'distill' | 'expand' | 'combine' | 'judge' | 'summary' | 'research' | 'x' | 'bsky' | 'brief';
+export const ROLES: Role[] = ['distill', 'expand', 'combine', 'judge', 'summary', 'research', 'x', 'bsky', 'brief'];
 
 export type AppSettings = {
   keys: Partial<Record<ProviderId, string>>;
@@ -32,7 +32,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     custom: '',
   },
   // Sonnet 5.5: calibrated judge, idiomatic Swedish. Grok: the only route that can search X.
-  models: { distill: SONNET, expand: SONNET, combine: SONNET, judge: SONNET, summary: SONNET, research: SONNET, x: 'openrouter:x-ai/grok-4.3', brief: SONNET },
+  models: { distill: SONNET, expand: SONNET, combine: SONNET, judge: SONNET, summary: SONNET, research: SONNET, x: 'openrouter:x-ai/grok-4.3', bsky: SONNET, brief: SONNET },
   projectsRoot: '~/Projekt/idea-projects',
   maxUsdPerDay: 5,
 };
@@ -155,12 +155,17 @@ async function openaiChat(settings: AppSettings, p: ProviderId, model: string, r
   if (PROVIDERS[p].needsKey && !key) throw new ProviderError('no_key', `${PROVIDERS[p].label}: no API key (Settings → Providers)`);
   if (r.plugins && !PROVIDERS[p].search) throw new ProviderError('no_search', `${PROVIDERS[p].label} cannot search the web; use an OpenRouter model such as openrouter:x-ai/grok-4.3`);
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'User-Agent': 'idea-generator-2/0.1.0' };
   if (key) {
     if (p === 'azure') headers['api-key'] = key;
     else headers.Authorization = `Bearer ${key}`;
   }
   if (p === 'openrouter') Object.assign(headers, { 'HTTP-Referer': 'http://localhost:8300', 'X-Title': 'Idea Generator 2' });
+  // OpenCode Go (zen/go) requires a stable session id for routing/caching.
+  // See https://opencode.ai/docs/console/go/#where-can-i-use-it
+  if (p === 'custom' && base.includes('opencode.ai')) {
+    headers['x-opencode-session'] = process.env.OPENCODE_SESSION_ID || 'idea-generator-2-solo-cash-1';
+  }
 
   let jsonMode: 'schema' | 'prompt' = p === 'mlx' ? 'prompt' : 'schema';
   const body: any = { model, temperature: r.temperature, max_tokens: r.maxTokens ?? 1200 };
