@@ -12,6 +12,15 @@ export type ProviderId = 'openrouter' | 'anthropic' | 'openai' | 'azure' | 'olla
 export type Role = 'distill' | 'expand' | 'combine' | 'judge' | 'summary' | 'research' | 'x' | 'bsky' | 'brief';
 export const ROLES: Role[] = ['distill', 'expand', 'combine', 'judge', 'summary', 'research', 'x', 'bsky', 'brief'];
 
+/** Defaults every new board starts from; editable in the app settings page. */
+export type AutopilotDefaults = {
+  mode: 'manual' | 'auto';
+  /** Seconds between autopilot steps. */
+  seconds: number;
+  stepsPerHour: number;
+  usdPerDay: number;
+};
+
 export type AppSettings = {
   keys: Partial<Record<ProviderId, string>>;
   baseUrls: Partial<Record<ProviderId, string>>;
@@ -19,6 +28,8 @@ export type AppSettings = {
   projectsRoot: string;
   /** Safety net across all boards, in USD per local calendar day. */
   maxUsdPerDay: number;
+  /** Where a newly created board starts: seeded into its own config, not live-linked. */
+  autopilot: AutopilotDefaults;
 };
 
 const SONNET = 'openrouter:anthropic/claude-sonnet-5.5';
@@ -35,6 +46,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   models: { distill: SONNET, expand: SONNET, combine: SONNET, judge: SONNET, summary: SONNET, research: SONNET, x: 'openrouter:x-ai/grok-4.3', bsky: SONNET, brief: SONNET },
   projectsRoot: '~/Projekt/idea-projects',
   maxUsdPerDay: 5,
+  autopilot: { mode: 'manual', seconds: 10, stepsPerHour: 60, usdPerDay: 1 },
 };
 
 type ProviderDef = {
@@ -82,6 +94,19 @@ export function mergeAppSettings(raw: any, base: AppSettings = DEFAULT_APP_SETTI
   if (/^(~\/|\/)/.test(s(raw?.projectsRoot))) out.projectsRoot = s(raw.projectsRoot);
   const max = Number(raw?.maxUsdPerDay);
   if (Number.isFinite(max) && max >= 0) out.maxUsdPerDay = Math.min(1000, max);
+
+  const ap = raw?.autopilot ?? {};
+  // null, undefined and junk are "absent", not zero: Number(null) would clamp to the floor.
+  const num = (v: unknown) =>
+    typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  if (ap.mode === 'auto' || ap.mode === 'manual') out.autopilot.mode = ap.mode;
+  const secs = num(ap.seconds);
+  if (Number.isFinite(secs)) out.autopilot.seconds = Math.min(3600, Math.max(3, Math.round(secs)));
+  const sph = num(ap.stepsPerHour);
+  if (Number.isFinite(sph)) out.autopilot.stepsPerHour = Math.min(3600, Math.max(1, Math.round(sph)));
+  const apUsd = num(ap.usdPerDay);
+  if (Number.isFinite(apUsd)) out.autopilot.usdPerDay = Math.min(1000, Math.max(0, Math.round(apUsd * 100) / 100));
+
   return out;
 }
 
@@ -122,6 +147,21 @@ export function mergeBrowserSettings(raw: any, current: AppSettings): AppSetting
     if (incoming === DEFAULT_APP_SETTINGS.models[r] && current.models[r] !== incoming) {
       out.models[r] = current.models[r];
     }
+  }
+
+  // Same for the autopilot defaults: a browser that never touched them sends the
+  // whole pristine block back and would silently undo the configured values.
+  // Only an entirely untouched block is ignored: "manual" is both the default
+  // and a real choice, so a partial match must still be applied.
+  const ap = raw?.autopilot;
+  if (ap && typeof ap === 'object') {
+    const d = DEFAULT_APP_SETTINGS.autopilot;
+    const pristine =
+      ap.mode === d.mode &&
+      Number(ap.seconds) === d.seconds &&
+      Number(ap.stepsPerHour) === d.stepsPerHour &&
+      Number(ap.usdPerDay) === d.usdPerDay;
+    if (pristine) out.autopilot = { ...current.autopilot };
   }
 
   return out;

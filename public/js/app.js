@@ -762,6 +762,15 @@ function appSettingsDialog() {
   const budget = h('input', { type: 'number', min: 0, step: 0.5, value: s.maxUsdPerDay });
   const spend = S.providers ? t('spend', { today: S.providers.spentToday.toFixed(3), total: S.providers.spentTotal.usd.toFixed(3) }) : '';
 
+  // Autopilot defaults a newly created board starts from.
+  const ap = { ...DEFAULTS.autopilot, ...(s.autopilot && typeof s.autopilot === 'object' ? s.autopilot : {}) };
+  const apMode = h('select', {},
+    h('option', { value: 'manual', selected: ap.mode === 'manual' }, t('manual')),
+    h('option', { value: 'auto', selected: ap.mode === 'auto' }, t('auto')));
+  const apSeconds = h('input', { type: 'number', min: 3, max: 3600, value: ap.seconds });
+  const apSph = h('input', { type: 'number', min: 1, max: 3600, value: ap.stepsPerHour });
+  const apUsd = h('input', { type: 'number', min: 0, step: 0.1, value: ap.usdPerDay });
+
   async function saveFromForm(close = true) {
     for (const p of PROVIDER_IDS) {
       if (keys[p]) { if (keys[p].value.trim()) s.keys[p] = keys[p].value.trim(); else delete s.keys[p]; }
@@ -770,6 +779,12 @@ function appSettingsDialog() {
     for (const r of ROLES) s.models[r] = models[r].value.trim() || DEFAULTS.models[r];
     s.projectsRoot = root.value.trim() || DEFAULTS.projectsRoot;
     s.maxUsdPerDay = Number(budget.value);
+    s.autopilot = {
+      mode: apMode.value === 'auto' ? 'auto' : 'manual',
+      seconds: Number(apSeconds.value),
+      stepsPerHour: Number(apSph.value),
+      usdPerDay: Number(apUsd.value),
+    };
     S.settings = s;
     S.providers = await saveSettings(s);
     if (close) { dlg.close(); toast(t('settingsSaved')); warnMissingKeys(); }
@@ -781,7 +796,11 @@ function appSettingsDialog() {
     h('fieldset', {}, h('legend', {}, t('models')), h('div', { class: 'grid2' }, ROLES.map((r) => field(t(`role_${r}`), models[r]))),
       h('small', { class: 'muted' }, t('calibrateNote'))),
     h('fieldset', {}, h('legend', {}, 'Claude Code'), field(t('projectsRoot'), root)),
-    h('fieldset', {}, h('legend', {}, t('autopilot')), field(t('globalBudget'), budget, spend)),
+    h('fieldset', {}, h('legend', {}, t('autopilot')), field(t('globalBudget'), budget, spend),
+      h('small', { class: 'muted' }, t('autopilotDefaultsNote')),
+      field(t('mode'), apMode),
+      h('div', { class: 'grid3' }, field(t('pace'), apSeconds), field(t('stepsPerHour'), apSph), field(t('usdPerDay'), apUsd)),
+      h('small', { class: 'muted' }, t('rateNote'))),
   ], [
     h('button', { class: 'btn', value: 'cancel' }, t('cancel')),
     h('button', { class: 'btn primary', onclick: (e) => { e.preventDefault(); saveFromForm().catch(fail); } }, t('save')),

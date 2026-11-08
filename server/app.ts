@@ -203,12 +203,21 @@ export function createHandler({ repo, engine, autopilot, runtime, publicDir }: D
     ['GET', /^\/api\/boards$/, () => ({ boards: repo.listBoards() })],
     ['POST', /^\/api\/boards$/, (_p, b) => {
       const lang = b.lang === 'en' ? 'en' : 'sv';
+      // A new board starts from the autopilot defaults configured in the app
+      // settings page. Seeded once, not live-linked: editing the defaults later
+      // must not silently retune boards that are already running.
+      const ap = runtime.get().autopilot;
       return {
         board: repo.createBoard({
           title: str(b.title, 120) || (lang === 'en' ? 'New board' : 'Ny tavla'),
           goal: str(b.goal, 600),
           templateId: Number.isInteger(b.templateId) ? b.templateId : null,
-          config: { lang },
+          config: {
+            lang,
+            mode: ap.mode,
+            autopilotSeconds: ap.seconds,
+            rate: { stepsPerHour: ap.stepsPerHour, usdPerDay: ap.usdPerDay },
+          },
         }),
       };
     }],

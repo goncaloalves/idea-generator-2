@@ -212,3 +212,26 @@ test('a deliberate non-default change still applies over the configured value', 
   assert.equal(after.baseUrls.custom, 'http://box:1234/v1');
   assert.equal(after.models.judge, 'custom:mimo-v2.6-flash');
 });
+
+test('autopilot defaults are validated and clamped', () => {
+  const s = mergeAppSettings({ autopilot: { mode: 'auto', seconds: 1, stepsPerHour: 99999, usdPerDay: -3 } });
+  assert.equal(s.autopilot.mode, 'auto');
+  assert.equal(s.autopilot.seconds, 3, 'below the 3s floor is clamped');
+  assert.equal(s.autopilot.stepsPerHour, 3600, 'above the ceiling is clamped');
+  assert.equal(s.autopilot.usdPerDay, 0, 'negative budget clamps to 0');
+  // Junk never throws and leaves the defaults alone.
+  const junk = mergeAppSettings({ autopilot: { mode: 'nope', seconds: 'x', stepsPerHour: null, usdPerDay: undefined } });
+  assert.deepEqual(junk.autopilot, DEFAULT_APP_SETTINGS.autopilot);
+  // A missing block keeps the defaults (older settings.json files).
+  assert.deepEqual(mergeAppSettings({}).autopilot, DEFAULT_APP_SETTINGS.autopilot);
+});
+
+test('a stale push cannot reset the configured autopilot defaults', () => {
+  const configured = mergeAppSettings({ autopilot: { mode: 'auto', seconds: 60, stepsPerHour: 100, usdPerDay: 2 } });
+  const stale = { autopilot: { ...DEFAULT_APP_SETTINGS.autopilot } };
+  const after = mergeBrowserSettings(stale, configured);
+  assert.deepEqual(after.autopilot, { mode: 'auto', seconds: 60, stepsPerHour: 100, usdPerDay: 2 });
+  // A deliberate change still lands.
+  const changed = mergeBrowserSettings({ autopilot: { mode: 'manual', seconds: 120, stepsPerHour: 5, usdPerDay: 0.5 } }, configured);
+  assert.deepEqual(changed.autopilot, { mode: 'manual', seconds: 120, stepsPerHour: 5, usdPerDay: 0.5 });
+});
