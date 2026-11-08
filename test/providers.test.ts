@@ -234,10 +234,17 @@ test('a stale browser push cannot wipe the configured base URL or models', () =>
 });
 
 test('a deliberate non-default change still applies over the configured value', () => {
-  const configured = mergeAppSettings({ baseUrls: { custom: 'https://opencode.ai/zen/go/v1' }, models: { judge: 'custom:beam-free' } });
+  const configured = mergeAppSettings({ baseUrls: { custom: 'https://opencode.ai/zen/go/v1' }, models: { judge: 'custom:beam-free', expand: 'custom:beam-free' } });
   const after = mergeBrowserSettings({ __userEdit: true, baseUrls: { custom: 'http://box:1234/v1' }, models: { judge: 'custom:mimo-v2.6-flash' } }, configured);
   assert.equal(after.baseUrls.custom, 'http://box:1234/v1');
   assert.equal(after.models.judge, 'custom:mimo-v2.6-flash');
+  // And resetting one specific role back to the built-in default on purpose is respected.
+  const resetOne = mergeBrowserSettings(
+    { __userEdit: true, models: { ...after.models, judge: DEFAULT_APP_SETTINGS.models.judge } },
+    after,
+  );
+  assert.equal(resetOne.models.judge, DEFAULT_APP_SETTINGS.models.judge);
+  assert.equal(resetOne.models.expand, 'custom:beam-free');
 });
 
 test('a passive sync may only carry keys, never configuration', () => {

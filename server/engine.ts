@@ -94,6 +94,19 @@ export function createEngine(deps: Deps) {
   };
   const modelFor = (board: Board, role: Role) => board.config.models[role] || deps.settings().models[role];
   const titles = (boardId: number) => repo.listIdeas(boardId).map((i) => i.title);
+  const childrenOf = (boardId: number, parentIds: number[]) => {
+    const pset = new Set(parentIds);
+    const childIds = new Set(
+      repo
+        .listEdges(boardId)
+        .filter((e) => pset.has(e.from))
+        .map((e) => e.to),
+    );
+    return repo
+      .listIdeas(boardId)
+      .filter((i) => childIds.has(i.id))
+      .map((i) => ({ title: i.title, pitch: i.pitch }));
+  };
   const emitIdeas = (boardId: number, ideas: Idea[]) => ideas.length && bus.emit(boardId, { type: 'ideas', ideas });
 
   /** Every LLM call: spend lands on the board's ledger; failures become 502s that keep the provider's code. */
@@ -199,7 +212,15 @@ export function createEngine(deps: Deps) {
     const parent = mustIdea(parentId);
     const board = mustBoard(parent.boardId);
     const { ideas } = await call(board.id, () =>
-      llm.expand({ model: modelFor(board, 'expand'), flow: board.config.flow, board, idea: parent, existingTitles: titles(board.id), lang: board.config.lang }),
+      llm.expand({
+        model: modelFor(board, 'expand'),
+        flow: board.config.flow,
+        board,
+        idea: parent,
+        existingTitles: titles(board.id),
+        siblings: childrenOf(board.id, [parent.id]),
+        lang: board.config.lang,
+      }),
     );
     const spots = arcPositions(parent, repo.parentsOf(parent.id)[0] ?? null, ideas.length);
     const created = ideas.map((i, n) =>
@@ -218,7 +239,16 @@ export function createEngine(deps: Deps) {
     const c = mustIdea(bId);
     if (a.boardId !== board.id || c.boardId !== board.id) throw new AppError(400, 'bad_pair', 'Ideas belong to another board');
     const { idea } = await call(board.id, () =>
-      llm.combine({ model: modelFor(board, 'combine'), flow: board.config.flow, board, a, b: c, existingTitles: titles(board.id), lang: board.config.lang }),
+      llm.combine({
+        model: modelFor(board, 'combine'),
+        flow: board.config.flow,
+        board,
+        a,
+        b: c,
+        existingTitles: titles(board.id),
+        siblings: childrenOf(board.id, [a.id, c.id]),
+        lang: board.config.lang,
+      }),
     );
     const dx = c.x - a.x, dy = c.y - a.y, len = Math.hypot(dx, dy) || 1; // midpoint, nudged off the line
     const created = repo.insertIdea(
@@ -447,11 +477,12 @@ export function createEngine(deps: Deps) {
     },
 
     /**
-     * One autopilot step: judge what is unjudged, otherwise breed (combine by
-     * tournament selection) or mutate (expand a strong idea). Awaits its own
-     * judgements so the next step sees the scores.
+     * One autopilot step: judge what is unjudged, periodically inject an unused
+     * lead so running boards get fresh genetic material, otherwise breed
+     * (combine by tournament selection) or mutate (expand a strong idea).
+     * Awaits its own judgements so the next step sees the scores.
      */
-    async autoStep(boardId: number): Promise<{ did: 'idle' | 'judge' | 'expand' | 'combine'; reason?: string; ids?: number[] }> {
+    async autoStep(boardId: number): Promise<{ did: 'idle' | 'judge' | 'seed' | 'expand' | 'combine'; reason?: string; ids?: number[] }> {
       mustBoard(boardId);
       const ideas = repo.listIdeas(boardId);
       if (!ideas.length) return { did: 'idle', reason: 'empty' };
@@ -465,7 +496,32 @@ export function createEngine(deps: Deps) {
         await judgeAll(unjudged.map((i) => i.id));
         return { did: 'judge', ids: unjudged.map((i) => i.id) };
       }
+      const unusedLead = repo.listLeads(boardId).find((l) => l.ideaId == null);
+      const lastSeedIdx = ideas.findLastIndex((i) => i.kind === 'seed' || i.kind === 'guest');
+      const sinceLastSeed = lastSeedIdx >= 0 ? ideas.length - 1 - lastSeedIdx : ideas.length;
       const move = nextMove(ideas, repo.listEdges(boardId), { busy: judging });
+      if (unusedLead && (!move || sinceLastSeed >= 6)) {
+        const pos = besideBoard(ideas);
+        const idea = repo.insertIdea({
+          boardId: unusedLead.boardId,
+          title: unusedLead.title,
+          pitch: [unusedLead.summary, unusedLead.hook].filter(Boolean).join(' ').slice(0, 600),
+          kind: 'seed',
+          sourceUrl: unusedLead.url,
+          x: pos.x,
+          y: pos.y,
+          generation: 0,
+        });
+        repo.markLeadUsed(unusedLead.id, idea.id);
+        emitIdeas(boardId, [idea]);
+        bus.emit(boardId, {
+          type: 'leads',
+          source: unusedLead.source,
+          leads: repo.listLeads(boardId).filter((l) => l.source === unusedLead.source),
+        });
+        await judgeAll([idea.id]);
+        return { did: 'seed', ids: [idea.id] };
+      }
       if (!move) return { did: 'idle', reason: 'nothing_to_do' };
       if (move.type === 'expand') {
         const r = await doExpand(move.idea.id);

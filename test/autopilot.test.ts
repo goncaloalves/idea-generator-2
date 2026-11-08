@@ -122,4 +122,14 @@ test('autoStep with the real engine: judge first, grow a small pool, then breed'
   const ideas = repo.listIdeas(board.id);
   assert.ok(ideas.every((i) => i.judgedAt), 'every step leaves its ideas judged');
   assert.ok(ideas.some((i) => i.kind === 'combine' && i.generation >= 2));
+
+  // When unused leads exist on a board that has bred ideas, autoStep seeds one into the pool.
+  repo.replaceLeads(board.id, 'bsky', [
+    { title: 'Bluesky Trend Seed', summary: 'Real user pain', hook: 'Turn into a tool', url: 'https://bsky.app/profile/a/post/1', meta: {} },
+  ]);
+  // Run until bredCount reaches a multiple of 6 or nextMove yields to the lead
+  const stepsAfterLead: string[] = [];
+  for (let i = 0; i < 6; i++) stepsAfterLead.push((await engine.autoStep(board.id)).did);
+  assert.ok(stepsAfterLead.includes('seed'), `expected autoStep to seed the unused lead: ${stepsAfterLead.join(',')}`);
+  assert.ok(repo.listIdeas(board.id).some((i) => i.title === 'Bluesky Trend Seed' && i.judgedAt));
 });

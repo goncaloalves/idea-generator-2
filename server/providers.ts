@@ -160,13 +160,15 @@ export function mergeBrowserSettings(raw: any, current: AppSettings): AppSetting
     if (!incoming && current.baseUrls[p]) out.baseUrls[p] = current.baseUrls[p];
   }
 
-  for (const r of ROLES) {
-    if (typeof raw?.models?.[r] !== 'string') continue;
-    const incoming = String(raw.models[r]).trim();
-    // Pristine default from a stale browser: keep the configured model instead.
-    if (incoming === DEFAULT_APP_SETTINGS.models[r] && current.models[r] !== incoming) {
-      out.models[r] = current.models[r];
-    }
+  // If an old browser saves settings without ever having loaded the server's
+  // models, all 9 roles arrive as pristine defaults; keep the server's models.
+  // An explicit edit of an individual role (even back to a default) still lands.
+  const allModelsPristine =
+    raw?.models &&
+    typeof raw.models === 'object' &&
+    ROLES.every((r) => typeof raw.models[r] === 'string' && String(raw.models[r]).trim() === DEFAULT_APP_SETTINGS.models[r]);
+  if (allModelsPristine) {
+    out.models = { ...current.models };
   }
 
   // Same for the autopilot defaults: a browser that never touched them sends the

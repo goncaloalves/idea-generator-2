@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { clampScore, fitness, medal, medalFromSum, scoreSum } from '../public/js/score.js';
-import { evolutionStats, expandedIds, nextMove, pairKey, usedPairs } from '../public/js/evolve.js';
+import { ancestorsOf, evolutionStats, expandedIds, lineageOverlap, nextMove, pairKey, usedPairs } from '../public/js/evolve.js';
+import { saturatedTerms } from '../server/llm.ts';
 
 const idea = (id: number, sum: number | null, extra: any = {}) => {
   const base: any = { id, kind: 'expand', generation: 1, medalOverride: null, ...extra };
@@ -110,4 +111,62 @@ test('evolution stats leave seeds out and compare first and latest windows', () 
   assert.equal(s.best, 12);
   assert.equal(s.generation, 5);
   assert.equal(evolutionStats(ideas.slice(0, 5)).latest, null, 'no "latest" until there is more than one window');
+});
+
+test('inbreeding protection: blocks grandparents, prefers unrelated lineages, and expands seeds before deep hybrids', () => {
+  // Seed 1 -> expand 2 -> expand 3 (grandchild of 1); Seed 10 -> expand 11
+  const ideas = [
+    idea(1, 9, { kind: 'seed', generation: 0 }),
+    idea(2, 11, { kind: 'expand', generation: 1 }),
+    idea(3, 12, { kind: 'expand', generation: 2 }),
+    idea(4, 11, { kind: 'expand', generation: 1 }),
+    idea(10, 8, { kind: 'seed', generation: 0 }),
+    idea(11, 10, { kind: 'expand', generation: 1 }),
+  ];
+  const edges = [
+    { from: 1, to: 2 },
+    { from: 1, to: 4 },
+    { from: 2, to: 3 },
+    { from: 10, to: 11 },
+  ];
+  const used = usedPairs(ideas, edges);
+  assert.ok(used.has(pairKey(1, 3)), 'grandparent and grandchild are never combined');
+
+  const anc = ancestorsOf(ideas, edges);
+  assert.equal(lineageOverlap(3, 11, anc), 0, 'separate seed trees have 0 overlap');
+  assert.ok(lineageOverlap(2, 4, anc) > 0, 'siblings share lineage overlap');
+
+  // When combining with mutationRate=0, unrelated cross-tree pairs win over sibling/cousin pairs.
+  const rng = rngFrom(7);
+  for (let i = 0; i < 50; i++) {
+    const m = nextMove(ideas, edges, { rng, mutationRate: 0 });
+    assert.equal(m?.type, 'combine');
+    assert.equal(lineageOverlap(m.a.id, m.b.id, anc), 0, `expected cross-tree pair, got ${m.a.id}-${m.b.id}`);
+  }
+
+  // Unexpanded seed (id 5, score 9, gen 0) beats a high-generation combine hybrid (id 6, score 10, gen 5) for expansion.
+  const expPool = [
+    idea(5, 9, { kind: 'seed', generation: 0 }),
+    idea(6, 10, { kind: 'combine', generation: 5 }),
+  ];
+  const em = nextMove(expPool, [], { rng: rngFrom(1), mutationRate: 1 });
+  assert.equal(em?.type, 'expand');
+  assert.equal(em.idea.id, 5, 'unexpanded seed is expanded before a deep hybrid');
+});
+
+test('saturatedTerms flags words overused across board titles', () => {
+  assert.deepEqual(saturatedTerms(['A', 'B', 'C']), [], 'too few titles');
+  const titles = [
+    'Exact Timer Loop',
+    'Preset Timer Loop',
+    'Embed Timer Loop',
+    'Ambient Timer Flywheel',
+    'Study Timer Loop',
+    'Focus Widget',
+    'Offline Clock',
+    'Kitchen Bell',
+  ];
+  const sat = saturatedTerms(titles);
+  assert.ok(sat.includes('timer') && sat.includes('loop'), `expected timer & loop in ${sat.join(',')}`);
+  assert.ok(!sat.includes('kitchen'), 'rare words are not flagged');
 });

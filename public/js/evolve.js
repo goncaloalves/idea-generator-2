@@ -14,7 +14,39 @@ export function population(ideas) {
   return ideas.filter((i) => fitness(i) != null);
 }
 
-/** Pairs that must not be bred again: already combined, or parent and child. */
+/** Map every idea id to the Set of all its ancestor ids (parents, grandparents, ...). */
+export function ancestorsOf(ideas, edges) {
+  const parentsOf = new Map();
+  for (const e of edges) {
+    if (!parentsOf.has(e.to)) parentsOf.set(e.to, []);
+    parentsOf.get(e.to).push(e.from);
+  }
+  const out = new Map();
+  for (const i of ideas) {
+    const seen = new Set();
+    const queue = [...(parentsOf.get(i.id) ?? [])];
+    while (queue.length) {
+      const cur = queue.shift();
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      for (const p of parentsOf.get(cur) ?? []) queue.push(p);
+    }
+    out.set(i.id, seen);
+  }
+  return out;
+}
+
+/** Jaccard similarity of two ideas' lineage sets ({id} ∪ ancestors). 0 = unrelated, 1 = identical. */
+export function lineageOverlap(aId, bId, ancestors) {
+  const la = new Set([aId, ...(ancestors.get(aId) ?? [])]);
+  const lb = new Set([bId, ...(ancestors.get(bId) ?? [])]);
+  let shared = 0;
+  for (const x of la) if (lb.has(x)) shared++;
+  const union = la.size + lb.size - shared;
+  return union ? shared / union : 0;
+}
+
+/** Pairs that must not be bred again: already combined, or any ancestor–descendant pair. */
 export function usedPairs(ideas, edges) {
   const kindOf = new Map(ideas.map((i) => [i.id, i.kind]));
   const parentsOf = new Map();
@@ -27,6 +59,10 @@ export function usedPairs(ideas, edges) {
   for (const [child, parents] of parentsOf) {
     if (kindOf.get(child) === 'combine' && parents.length === 2) used.add(pairKey(parents[0], parents[1]));
   }
+  const ancestors = ancestorsOf(ideas, edges);
+  for (const [id, anc] of ancestors) {
+    for (const a of anc) used.add(pairKey(id, a));
+  }
   return used;
 }
 
@@ -38,11 +74,21 @@ export function expandedIds(ideas, edges) {
   return out;
 }
 
-function tournament(pool, k, rng) {
+/** How many combine-children each idea has already fathered. */
+function combineCounts(ideas, edges) {
+  const kindOf = new Map(ideas.map((i) => [i.id, i.kind]));
+  const counts = new Map();
+  for (const e of edges) {
+    if (kindOf.get(e.to) === 'combine') counts.set(e.from, (counts.get(e.from) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function tournament(pool, k, rng, scoreFn = fitness) {
   let best = null;
   for (let i = 0; i < k; i++) {
     const c = pool[Math.floor(rng() * pool.length)];
-    if (!best || fitness(c) > fitness(best)) best = c;
+    if (!best || scoreFn(c) > scoreFn(best)) best = c;
   }
   return best;
 }
@@ -51,17 +97,28 @@ function tournament(pool, k, rng) {
  * @param {Array} ideas  ideas on the board (with id, kind, scores)
  * @param {Array} edges  {from, to}
  * @param {object} opts  rng, busy (Set of ids being worked on), inFlight (Set of pair keys),
- *                       mutationRate, k (tournament size)
+ *                       mutationRate, k (tournament size), maxOverlap (max lineage Jaccard overlap)
  * @returns {{type:'combine', a, b} | {type:'expand', idea} | null}
  */
 export function nextMove(ideas, edges, opts = {}) {
-  const { rng = Math.random, busy = new Set(), inFlight = new Set(), mutationRate = 0.2, k = 3 } = opts;
+  const { rng = Math.random, busy = new Set(), inFlight = new Set(), mutationRate = 0.35, k = 3, maxOverlap = 0.45 } = opts;
   const pool = population(ideas).filter((i) => !busy.has(i.id));
   const expanded = expandedIds(ideas, edges);
   const used = usedPairs(ideas, edges);
+  const ancestors = ancestorsOf(ideas, edges);
+  const bredCount = combineCounts(ideas, edges);
+
+  // Discount fitness for ideas that have already been heavily combined so one
+  // early winner does not dominate 80% of the board's genealogy.
+  const selectScore = (i) => fitness(i) - (bredCount.get(i.id) ?? 0) * 1.5;
+
+  // Prefer expanding unexpanded seeds/guests and lower-generation ideas before
+  // mutating deep combine hybrids.
+  const expandPriority = (i) =>
+    fitness(i) + (i.kind === 'seed' || i.kind === 'guest' ? 2.5 : 0) - (i.generation || 0) * 0.6;
 
   const bestUnexpanded = () =>
-    [...pool].sort((a, b) => fitness(b) - fitness(a)).find((i) => !expanded.has(i.id));
+    [...pool].sort((a, b) => expandPriority(b) - expandPriority(a) || fitness(b) - fitness(a)).find((i) => !expanded.has(i.id));
 
   if (pool.length < 3 || rng() < mutationRate) {
     const idea = bestUnexpanded();
@@ -69,14 +126,26 @@ export function nextMove(ideas, edges, opts = {}) {
   }
 
   if (pool.length >= 2) {
+    let bestPair = null;
+    let bestOverlap = Infinity;
     for (let attempt = 0; attempt < 40; attempt++) {
-      const a = tournament(pool, k, rng);
+      const a = tournament(pool, k, rng, selectScore);
       const rest = pool.filter((i) => i.id !== a.id);
-      const b = tournament(rest, k, rng);
+      const b = tournament(rest, k, rng, selectScore);
       const key = pairKey(a.id, b.id);
       if (used.has(key) || inFlight.has(key)) continue;
-      return { type: 'combine', a, b };
+      const ov = lineageOverlap(a.id, b.id, ancestors);
+      if (ov === 0) return { type: 'combine', a, b };
+      if (ov < bestOverlap) {
+        bestOverlap = ov;
+        bestPair = { type: 'combine', a, b };
+      }
     }
+    // If the only available pairs are heavily inbred, prefer expanding an unexpanded idea first.
+    if (bestPair && bestOverlap <= maxOverlap) return bestPair;
+    const fallbackExpand = bestUnexpanded();
+    if (fallbackExpand) return { type: 'expand', idea: fallbackExpand };
+    if (bestPair) return bestPair;
   }
 
   const idea = bestUnexpanded();

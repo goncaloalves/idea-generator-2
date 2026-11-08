@@ -67,6 +67,38 @@ const JUDGE_SCHEMA = {
 
 const LANG_NAME: Record<Lang, string> = { sv: 'Swedish', en: 'English' };
 
+const TITLE_STOPWORDS = new Set([
+  'with', 'from', 'that', 'this', 'into', 'your', 'over', 'under', 'only', 'also', 'when', 'what', 'where',
+  'for', 'and', 'the', 'one', 'two', 'three', 'real', 'free', 'paid', 'self', 'solo', 'auto', 'data',
+  'med', 'för', 'till', 'från', 'eller', 'utan', 'inom', 'genom', 'vara', 'egna', 'egen',
+]);
+
+/**
+ * Words that already appear in too many titles on a board (at least 3 titles and >= 18% of the board).
+ * Surfacing these as saturated tropes stops the model from stamping out yet another "X Loop" or "Y Kit".
+ */
+export function saturatedTerms(titles: string[]): string[] {
+  if (titles.length < 6) return [];
+  const counts = new Map<string, number>();
+  for (const t of titles) {
+    const words = new Set(
+      t
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+        .split(/\s+/)
+        .map((w) => w.replace(/^-+|-+$/g, ''))
+        .filter((w) => w.length >= 4 && !TITLE_STOPWORDS.has(w) && !/^\d+$/.test(w)),
+    );
+    for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
+  }
+  const threshold = Math.max(3, Math.ceil(titles.length * 0.18));
+  return [...counts.entries()]
+    .filter(([, n]) => n >= threshold)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 12)
+    .map(([w]) => w);
+}
+
 function languageRule(lang: Lang) {
   return [
     `Write in the same language as the source idea(s). If that is unclear or mixed, write in ${LANG_NAME[lang]}.`,
@@ -74,16 +106,34 @@ function languageRule(lang: Lang) {
   ].join(' ');
 }
 
-function context(board: BoardCtx, existingTitles: string[]) {
+function sampleTitles(titles: string[], max = 60): string[] {
+  if (titles.length <= max) return titles;
+  const head = Math.floor(max / 3);
+  const tail = max - head;
+  return [...titles.slice(0, head), ...titles.slice(-tail)];
+}
+
+function context(board: BoardCtx, existingTitles: string[], siblings: Pitch[] = []) {
   const parts: string[] = [];
   if (board.goal.trim())
     parts.push(
       `The board's goal (the general direction): ${board.goal.trim()}\nEvery idea must serve this goal. Keep the source idea's substance, but steer it toward the goal.`,
     );
+  if (siblings.length)
+    parts.push(
+      `Ideas already branched directly from the same parent(s) (take a completely different angle, mechanism and audience from these):\n${siblings
+        .slice(-12)
+        .map((s) => `- ${fmtIdea(s)}`)
+        .join('\n')}`,
+    );
+  const saturated = saturatedTerms(existingTitles);
+  if (saturated.length)
+    parts.push(
+      `Overused words and tropes on this board (DO NOT use these words in the title or repeat their format — explore a fresh mechanism and delivery format instead): ${saturated.join(', ')}`,
+    );
   if (existingTitles.length)
     parts.push(
-      `Ideas already on the board (do not repeat or lightly reword them):\n${existingTitles
-        .slice(-40)
+      `Ideas already on the board (do not repeat or lightly reword them):\n${sampleTitles(existingTitles, 60)
         .map((t) => `- ${t}`)
         .join('\n')}`,
     );
@@ -188,16 +238,27 @@ export function makeLLM(chat: ChatFn) {
   };
 
   const tidy = (p: any): Pitch => ({
-    title: String(p?.title ?? '').trim().replace(/^["'«»“”]+|["'«»“”.]+$/g, '').slice(0, 120),
-    pitch: String(p?.pitch ?? '').trim().slice(0, 600),
+    title: String(p?.title ?? '')
+      .trim()
+      .replace(/^(?:answer in [a-z]+\s*[—–:-]\s*)+/i, '')
+      .replace(/^(?:fused product|combined idea|close variant|bold leap)\s*:\s*/i, '')
+      .replace(/^["'«»“”]+|["'«»“”.]+$/g, '')
+      .trim()
+      .slice(0, 120),
+    pitch: String(p?.pitch ?? '')
+      .trim()
+      .replace(/^(?:close variant[^:]{0,40}|bold leap[^:]{0,40}|fused product)\s*:\s*/i, '')
+      .trim()
+      .slice(0, 600),
   });
 
   return {
-    async expand(a: { model: string; flow: Flow; board: BoardCtx; idea: Pitch; existingTitles: string[]; lang: Lang }) {
+    async expand(a: { model: string; flow: Flow; board: BoardCtx; idea: Pitch; existingTitles: string[]; siblings?: Pitch[]; lang: Lang }) {
       const user = [
         a.flow.expand,
+        'Make the 3 ideas genuinely distinct in audience, delivery format, or core mechanism. Do not prefix titles or pitches with meta-labels like "Close variant:" or "Bold leap:".',
         `The concept:\n${fmtIdea(a.idea)}`,
-        context(a.board, a.existingTitles),
+        context(a.board, a.existingTitles, a.siblings),
         languageRule(a.lang),
       ]
         .filter(Boolean)
@@ -208,12 +269,13 @@ export function makeLLM(chat: ChatFn) {
       return { ideas: ideas.slice(0, 3), costUsd };
     },
 
-    async combine(a: { model: string; flow: Flow; board: BoardCtx; a: Pitch; b: Pitch; existingTitles: string[]; lang: Lang }) {
+    async combine(a: { model: string; flow: Flow; board: BoardCtx; a: Pitch; b: Pitch; existingTitles: string[]; siblings?: Pitch[]; lang: Lang }) {
       const user = [
         a.flow.combine,
+        'Synthesise ONE unified concept — do NOT create a "2-in-1 bundle", "crosswalk", or multi-part kit that merely ships Idea 1 and Idea 2 side by side. Borrow one specific mechanism from one idea to transform the other, and drop everything that does not fit.',
         `Idea 1:\n${fmtIdea(a.a)}`,
         `Idea 2:\n${fmtIdea(a.b)}`,
-        context(a.board, a.existingTitles),
+        context(a.board, a.existingTitles, a.siblings),
         languageRule(a.lang),
       ]
         .filter(Boolean)
