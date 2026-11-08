@@ -345,7 +345,9 @@ export function makeLLM(chat: ChatFn) {
         schemaName: 'judgement',
         schema: JUDGE_SCHEMA,
         temperature: 0.2,
-        maxTokens: 400,
+        // Generous: reasoning models spend tokens thinking before answering,
+        // and a tight cap here produced empty answers from DeepSeek.
+        maxTokens: 2000,
       });
       const judgement: Judgement = {
         originality: clampScore(value?.originality),

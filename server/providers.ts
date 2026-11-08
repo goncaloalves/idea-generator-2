@@ -174,6 +174,12 @@ async function openaiChat(settings: AppSettings, p: ProviderId, model: string, r
     body.usage = { include: true };
     if (r.plugins) body.plugins = r.plugins;
   }
+  // Reasoning models burn the whole token budget on hidden thinking and then
+  // return empty content. Ask them not to reason on these short, single-shot
+  // calls; if the provider rejects the flag the 400 handler above drops it.
+  if (p === 'custom') {
+    body.reasoning = { enabled: false };
+  }
   let lastError = '';
   for (let attempt = 0, adjustments = 0; attempt < 3; ) {
     body.messages = [
