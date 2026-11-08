@@ -136,7 +136,7 @@ test('full loop: seed → background judge → expand → combine → export', a
 
 test('each role uses its own model: app-wide setting, overridden per board', async () => {
   const pushed = await api('PUT', '/api/runtime-settings', {
-    ...settings, models: { ...settings.models, expand: 'ollama:qwen3:8b' }, keys: { openrouter: 'sk-or-secret-123' },
+    ...settings, models: { ...settings.models, expand: 'ollama:qwen3:8b' }, keys: { openrouter: 'sk-or-secret-123' }, __userEdit: true,
   });
   assert.ok(!JSON.stringify(pushed.data).includes('sk-or-secret-123'), 'keys are never echoed back');
   assert.equal(pushed.data.providers.find((p: any) => p.id === 'openrouter').keySource, 'browser');

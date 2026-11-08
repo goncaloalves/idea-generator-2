@@ -30,7 +30,7 @@ Each board has a **goal** that every step works toward. Seed it with a thought, 
   - *Report*: totals, cross-board conclusions, every project with its start command, and one card per board. Exports to Markdown.
 - **Exhibition mode.** Fullscreen, the camera follows new ideas, and visitors type seeds. It runs together with automatic mode.
 - **Providers per role.** Every role has its own model, written `provider:model`. The roles are distill, branch, cross, judge, summary, research scout, X scout and project brief.
-  - **Hosted:** OpenRouter, Anthropic (official SDK) and OpenAI.
+  - **Hosted:** OpenRouter, Anthropic (official SDK), OpenAI and OpenCode Go.
   - **Copilot models:** neither GitHub Copilot nor Microsoft Copilot has a completion API for apps, and GitHub Models was retired on 30 July 2026. GitHub points to Microsoft Foundry, so the models behind both Copilots are reached through the Azure OpenAI / Microsoft Foundry provider.
   - **Local:** Ollama, MLX (`mlx_lm.server`), LM Studio, or any OpenAI-compatible URL.
 - **Swedish and English** interface. Generated text follows the language of its seed.
@@ -49,6 +49,22 @@ npm run calibrate    # real judge vs. reference ideas (~$0.07); -- --model ollam
 All app settings live in the browser (localStorage), including API keys, models per role, provider addresses, the projects folder and the global budget. The browser pushes them to the local server. API keys are kept in memory only and never written to disk; everything else (provider base URLs, models per role, projects folder, global budget) is persisted to `data/settings.json` so it survives a restart, and the server is usable straight after a boot without waiting for a browser. Environment variables (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY`, `CUSTOM_API_KEY`) work as a fallback. Set `SETTINGS_FILE` to keep that file somewhere else.
 
 Secrets for the systemd unit live in `data/service.env` (gitignored, `chmod 600`); `scripts/start-8300.sh` sources it and falls back to `/tmp/idea-env`. Keep secrets out of `/tmp`, which does not survive a reboot.
+
+### Referring to a model
+
+Every model is written `provider:model`, e.g. `openrouter:anthropic/claude-sonnet-5.5`, `anthropic:claude-opus-5-5`, `ollama:qwen3:8b`.
+
+**OpenCode Go** is a first-class provider, so no base URL has to be configured: give it the key and refer to models as `opencode-go:<id>`:
+
+```
+opencode-go:glm-5.3            opencode-go:claude-haiku-5-5
+opencode-go:glm-5.3-flash      opencode-go:kimi-k2.7-code
+opencode-go:deepseek-v4.1-flash    opencode-go:qwen3.8-flash
+```
+
+The ids are whatever `POST /api/providers/opencode-go/models` returns (also listed in the settings page's Test button). The endpoint is `https://opencode.ai/zen/go/v1`; the required `x-opencode-session` header and `reasoning: {enabled: false}` are added automatically. Anything else OpenAI-compatible still goes through the `custom` provider.
+
+Only an explicit save from the settings page changes the stored configuration. A page merely handing over its keys on load may not alter base URLs, models or autopilot defaults, so an older browser tab cannot silently revert them.
 
 A browser whose localStorage predates this config pushes pristine defaults when it loads. Those cannot undo the server config: an empty provider base URL and a model still at its built-in default never overwrite a value already configured. A deliberate change (anything that differs from the built-in default) applies normally.
 

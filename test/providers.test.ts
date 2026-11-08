@@ -4,7 +4,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import {
-  DEFAULT_APP_SETTINGS, extractJson, keyFor, listModels, makeChat, mergeAppSettings, mergeBrowserSettings, parseModel, ProviderError, toPersisted, type AppSettings,
+  DEFAULT_APP_SETTINGS, extractJson, keyFor, listModels, makeChat, mergeAppSettings, mergeBrowserSettings, parseModel, PROVIDERS, ProviderError, toPersisted, type AppSettings,
 } from '../server/providers.ts';
 
 type Seen = { path: string; headers: Record<string, any>; body: any };
@@ -69,6 +69,33 @@ test('JSON is dug out of thinking tags, code fences and prose', () => {
   assert.deepEqual(extractJson('<think>hmm {no}</think>\n```json\n{"a":1}\n```'), { a: 1 });
   assert.deepEqual(extractJson('Here you go: {"a":{"b":2}} hope that helps'), { a: { b: 2 } });
   assert.throws(() => extractJson('no json here'));
+});
+
+test('opencode-go is a first-class provider: opencode-go:model refs, session header, no reasoning', async () => {
+  // Reference format: "opencode-go:<model-id>".
+  assert.deepEqual(parseModel('opencode-go:glm-5.3'), { provider: 'opencode-go', model: 'glm-5.3' });
+  assert.deepEqual(parseModel('opencode-go:claude-haiku-5-5'), { provider: 'opencode-go', model: 'claude-haiku-5-5' });
+  // Ships its own endpoint, so no base URL has to be configured by hand.
+  assert.equal(PROVIDERS['opencode-go'].base, 'https://opencode.ai/zen/go/v1');
+  assert.equal(PROVIDERS['opencode-go'].env, 'OPENCODE_API_KEY');
+
+  script = () => ({ status: 200, body: oaiAnswer('{"title":"Ok"}') });
+  const chat = makeChat(() => settingsWith({ baseUrls: { 'opencode-go': base }, keys: { 'opencode-go': 'og-key' } }));
+  const prev = process.env.OPENCODE_SESSION_ID;
+  process.env.OPENCODE_SESSION_ID = 'test-session-1';
+  try {
+    const out = await chat(req('opencode-go:glm-5.3'));
+    assert.deepEqual(out.value, { title: 'Ok' });
+  } finally {
+    if (prev === undefined) delete process.env.OPENCODE_SESSION_ID;
+    else process.env.OPENCODE_SESSION_ID = prev;
+  }
+  const s = seen.at(-1)!;
+  assert.equal(s.headers.authorization, 'Bearer og-key');
+  assert.equal(s.body.model, 'glm-5.3');
+  // zen/go routes on this header, and reasoning would eat the token budget.
+  assert.equal(s.headers['x-opencode-session'], 'test-session-1');
+  assert.deepEqual(s.body.reasoning, { enabled: false });
 });
 
 test('OpenAI-compatible: strict json_schema, Bearer key, cost from usage', async () => {
@@ -208,9 +235,30 @@ test('a stale browser push cannot wipe the configured base URL or models', () =>
 
 test('a deliberate non-default change still applies over the configured value', () => {
   const configured = mergeAppSettings({ baseUrls: { custom: 'https://opencode.ai/zen/go/v1' }, models: { judge: 'custom:beam-free' } });
-  const after = mergeBrowserSettings({ baseUrls: { custom: 'http://box:1234/v1' }, models: { judge: 'custom:mimo-v2.6-flash' } }, configured);
+  const after = mergeBrowserSettings({ __userEdit: true, baseUrls: { custom: 'http://box:1234/v1' }, models: { judge: 'custom:mimo-v2.6-flash' } }, configured);
   assert.equal(after.baseUrls.custom, 'http://box:1234/v1');
   assert.equal(after.models.judge, 'custom:mimo-v2.6-flash');
+});
+
+test('a passive sync may only carry keys, never configuration', () => {
+  const configured = mergeAppSettings({
+    baseUrls: { custom: 'https://opencode.ai/zen/go/v1' },
+    models: { judge: 'opencode-go:claude-haiku-5-5' },
+    autopilot: { mode: 'auto', seconds: 60, stepsPerHour: 12, usdPerDay: 3 },
+  });
+  // What an open page sends on reconnect: its own old config, no explicit save.
+  const passive = {
+    keys: { openrouter: 'user-key' },
+    baseUrls: { custom: '' },
+    models: { judge: 'openrouter:openrouter/free' },
+    autopilot: { mode: 'manual', seconds: 10, stepsPerHour: 60, usdPerDay: 1 },
+  };
+  const after = mergeBrowserSettings(passive, configured);
+  assert.equal(after.baseUrls.custom, 'https://opencode.ai/zen/go/v1');
+  assert.equal(after.models.judge, 'opencode-go:claude-haiku-5-5');
+  assert.deepEqual(after.autopilot, { mode: 'auto', seconds: 60, stepsPerHour: 12, usdPerDay: 3 });
+  // The key is still adopted: only the browser has it.
+  assert.equal(after.keys.openrouter, 'user-key');
 });
 
 test('autopilot defaults are validated and clamped', () => {
@@ -232,6 +280,6 @@ test('a stale push cannot reset the configured autopilot defaults', () => {
   const after = mergeBrowserSettings(stale, configured);
   assert.deepEqual(after.autopilot, { mode: 'auto', seconds: 60, stepsPerHour: 100, usdPerDay: 2 });
   // A deliberate change still lands.
-  const changed = mergeBrowserSettings({ autopilot: { mode: 'manual', seconds: 120, stepsPerHour: 5, usdPerDay: 0.5 } }, configured);
+  const changed = mergeBrowserSettings({ __userEdit: true, autopilot: { mode: 'manual', seconds: 120, stepsPerHour: 5, usdPerDay: 0.5 } }, configured);
   assert.deepEqual(changed.autopilot, { mode: 'manual', seconds: 120, stepsPerHour: 5, usdPerDay: 0.5 });
 });

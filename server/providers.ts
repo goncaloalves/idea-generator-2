@@ -8,7 +8,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 
-export type ProviderId = 'openrouter' | 'anthropic' | 'openai' | 'azure' | 'ollama' | 'mlx' | 'lmstudio' | 'custom';
+export type ProviderId = 'openrouter' | 'anthropic' | 'openai' | 'azure' | 'opencode-go' | 'ollama' | 'mlx' | 'lmstudio' | 'custom';
 export type Role = 'distill' | 'expand' | 'combine' | 'judge' | 'summary' | 'research' | 'x' | 'bsky' | 'brief';
 export const ROLES: Role[] = ['distill', 'expand', 'combine', 'judge', 'summary', 'research', 'x', 'bsky', 'brief'];
 
@@ -68,6 +68,12 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
   azure: {
     label: 'Azure OpenAI / Microsoft Foundry (Copilot models)', type: 'openai', env: 'AZURE_OPENAI_API_KEY', needsKey: true,
     note: 'Neither GitHub Copilot nor Microsoft Copilot has a completion API for apps, and GitHub Models was retired on 30 July 2026 (GitHub points to Microsoft Foundry). The models behind both Copilots are reachable here: base URL https://<resource>.openai.azure.com/openai/v1, model = deployment name.',
+  },
+  // OpenCode Go (zen/go): OpenAI-compatible, needs a stable x-opencode-session header.
+  // Reference its models as "opencode-go:<model-id>", e.g. opencode-go:glm-5.3.
+  'opencode-go': {
+    label: 'OpenCode Go', type: 'openai', base: 'https://opencode.ai/zen/go/v1', env: 'OPENCODE_API_KEY', needsKey: true,
+    note: 'Reference models as opencode-go:<id>, e.g. opencode-go:glm-5.3 or opencode-go:claude-haiku-5-5. Run /models on the provider to list ids. Needs the OpenCode key; the x-opencode-session header is added automatically.',
   },
   ollama: { label: 'Ollama (local)', type: 'ollama', needsKey: false, local: true },
   mlx: { label: 'MLX · mlx_lm.server (local)', type: 'openai', needsKey: false, local: true },
@@ -133,6 +139,20 @@ export function toPersisted(s: AppSettings): PersistedSettings {
  */
 export function mergeBrowserSettings(raw: any, current: AppSettings): AppSettings {
   const out = mergeAppSettings(raw, current);
+
+  // A passive sync (the page handing over its keys on load) may only carry keys.
+  // Anything else it sends is its own possibly-stale copy, and letting that win
+  // is what silently reverted the provider base URL and the models. Only an
+  // explicit save from the settings page (__userEdit) may change configuration.
+  const userEdit = raw?.__userEdit === true;
+  if (!userEdit) {
+    out.baseUrls = { ...current.baseUrls };
+    out.models = { ...current.models };
+    out.autopilot = { ...current.autopilot };
+    out.maxUsdPerDay = current.maxUsdPerDay;
+    out.projectsRoot = current.projectsRoot;
+    return out;
+  }
 
   for (const p of Object.keys(PROVIDERS) as ProviderId[]) {
     if (typeof raw?.baseUrls?.[p] !== 'string') continue;
@@ -243,9 +263,10 @@ async function openaiChat(settings: AppSettings, p: ProviderId, model: string, r
     else headers.Authorization = `Bearer ${key}`;
   }
   if (p === 'openrouter') Object.assign(headers, { 'HTTP-Referer': 'http://localhost:8300', 'X-Title': 'Idea Generator 2' });
-  // OpenCode Go (zen/go) requires a stable session id for routing/caching.
-  // See https://opencode.ai/docs/console/go/#where-can-i-use-it
-  if (p === 'custom' && base.includes('opencode.ai')) {
+  // Providers with an OpenCode-flavoured endpoint need a stable session id for
+  // routing and caching, and must not spend their budget on hidden reasoning.
+  const opencodeish = p === 'opencode-go' || (p === 'custom' && base.includes('opencode.ai'));
+  if (opencodeish) {
     headers['x-opencode-session'] = process.env.OPENCODE_SESSION_ID || 'idea-generator-2-solo-cash-1';
   }
 
@@ -259,7 +280,7 @@ async function openaiChat(settings: AppSettings, p: ProviderId, model: string, r
   // Reasoning models burn the whole token budget on hidden thinking and then
   // return empty content. Ask them not to reason on these short, single-shot
   // calls; if the provider rejects the flag the 400 handler above drops it.
-  if (p === 'custom') {
+  if (opencodeish) {
     body.reasoning = { enabled: false };
   }
   let lastError = '';

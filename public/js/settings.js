@@ -7,7 +7,7 @@ import { api } from './api.js';
 
 const KEY = 'ideagen.settings.v1';
 export const ROLES = ['distill', 'expand', 'combine', 'judge', 'summary', 'research', 'x', 'bsky', 'brief'];
-export const PROVIDER_IDS = ['openrouter', 'anthropic', 'openai', 'azure', 'ollama', 'mlx', 'lmstudio', 'custom'];
+export const PROVIDER_IDS = ['openrouter', 'anthropic', 'openai', 'azure', 'opencode-go', 'ollama', 'mlx', 'lmstudio', 'custom'];
 
 const SONNET = 'openrouter:anthropic/claude-sonnet-5.5';
 export const DEFAULTS = {
@@ -41,9 +41,29 @@ export function pushSettings(s) {
   return api('PUT', '/api/runtime-settings', s);
 }
 
+/**
+ * Adopt the server's persisted non-secret config, keeping the keys that only
+ * this browser has. Without this a browser whose localStorage is older than the
+ * server config pushes it back on every load and silently undoes it.
+ */
+export function adoptServerSettings(local, server) {
+  if (!server || typeof server !== 'object') return local;
+  return {
+    ...local,
+    baseUrls: { ...local.baseUrls, ...(server.baseUrls || {}) },
+    models: { ...local.models, ...(server.models || {}) },
+    autopilot: { ...local.autopilot, ...(server.autopilot || {}) },
+    projectsRoot: server.projectsRoot || local.projectsRoot,
+    maxUsdPerDay: Number.isFinite(server.maxUsdPerDay) ? server.maxUsdPerDay : local.maxUsdPerDay,
+    keys: local.keys,
+  };
+}
+
 export async function saveSettings(s) {
   localStorage.setItem(KEY, JSON.stringify(s));
-  return pushSettings(s);
+  // __userEdit marks an explicit save from the settings page. Passive syncs must
+  // not rewrite the configured base URLs or models (see mergeBrowserSettings).
+  return api('PUT', '/api/runtime-settings', { ...s, __userEdit: true });
 }
 
 /** Providers the current models depend on, so we can warn about a missing key. */

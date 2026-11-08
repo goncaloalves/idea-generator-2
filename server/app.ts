@@ -8,7 +8,7 @@ import { extname, join, resolve, sep } from 'node:path';
 import type { Repo, Idea, Board } from './db.ts';
 import { AppError, type Engine } from './engine.ts';
 import type { Autopilot } from './autopilot.ts';
-import { PROVIDERS, keySource, listModels, mergeBrowserSettings, mergeAppSettings, type AppSettings, type ProviderId } from './providers.ts';
+import { PROVIDERS, keySource, listModels, mergeBrowserSettings, mergeAppSettings, toPersisted, type AppSettings, type ProviderId } from './providers.ts';
 import { fitness, medal, scoreSum } from '../public/js/score.js';
 
 export type Runtime = {
@@ -169,6 +169,9 @@ export function createHandler({ repo, engine, autopilot, runtime, publicDir }: D
     const s = runtime.get();
     return {
       settingsReceived: runtime.received(),
+      // The persisted, non-secret config. The browser adopts this instead of
+      // pushing its own (possibly stale) copy back on every page load.
+      settings: toPersisted(s),
       providers: (Object.keys(PROVIDERS) as ProviderId[]).map((id) => ({
         id, label: PROVIDERS[id].label, local: !!PROVIDERS[id].local, needsKey: PROVIDERS[id].needsKey,
         search: !!PROVIDERS[id].search, note: PROVIDERS[id].note ?? null, keySource: keySource(s, id),
@@ -190,7 +193,7 @@ export function createHandler({ repo, engine, autopilot, runtime, publicDir }: D
       return providerStatus();
     }],
     ['GET', /^\/api\/providers$/, () => providerStatus()],
-    ['POST', /^\/api\/providers\/([a-z]+)\/models$/, async ([id]) => {
+    ['POST', /^\/api\/providers\/([a-z-]+)\/models$/, async ([id]) => {
       if (!(id in PROVIDERS)) throw new AppError(404, 'not_found', 'Unknown provider');
       try {
         return { models: await listModels(runtime.get(), id as ProviderId) };

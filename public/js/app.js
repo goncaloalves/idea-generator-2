@@ -4,7 +4,7 @@ import { api, follow } from './api.js';
 import { $, h, clear, toast, debounce } from './dom.js';
 import { t, getLang, setLang, applyI18n, errorText } from './i18n.js';
 import { Graph, KIND_COLORS } from './graph.js';
-import { loadSettings, saveSettings, pushSettings, ROLES, PROVIDER_IDS, providersInUse, DEFAULTS } from './settings.js';
+import { loadSettings, saveSettings, pushSettings, adoptServerSettings, ROLES, PROVIDER_IDS, providersInUse, DEFAULTS } from './settings.js';
 import { medal, scoreSum, fitness, CRITERIA } from './score.js';
 import { evolutionStats } from './evolve.js';
 import { openDashboard } from './dashboard.js';
@@ -102,7 +102,7 @@ function onEvent(e) {
       S.autopilot = e.autopilot;
       renderAutopilot();
       // The server restarted and lost the settings it only keeps in memory: hand them over again.
-      if (!e.settingsReceived) pushSettings(S.settings).then((p) => (S.providers = p)).catch(fail);
+      if (!e.settingsReceived) syncSettingsWithServer().catch(fail);
       break;
     case 'ideas':
       for (const idea of e.ideas) {
@@ -714,10 +714,10 @@ async function boardSettingsDialog() {
 
 const PROVIDER_LABELS = {
   openrouter: 'OpenRouter', anthropic: 'Anthropic', openai: 'OpenAI',
-  azure: 'Azure OpenAI / Microsoft Foundry (Copilot models)', ollama: 'Ollama', mlx: 'MLX (mlx_lm.server)', lmstudio: 'LM Studio', custom: 'OpenAI-compatible',
+  azure: 'Azure OpenAI / Microsoft Foundry (Copilot models)', 'opencode-go': 'OpenCode Go', ollama: 'Ollama', mlx: 'MLX (mlx_lm.server)', lmstudio: 'LM Studio', custom: 'OpenAI-compatible',
 };
 const HAS_URL = ['ollama', 'mlx', 'lmstudio', 'azure', 'custom'];
-const HAS_KEY = ['openrouter', 'anthropic', 'openai', 'azure', 'custom'];
+const HAS_KEY = ['openrouter', 'anthropic', 'openai', 'azure', 'opencode-go', 'custom'];
 const modelCatalog = new Map();
 
 function refreshModelList() {
@@ -952,11 +952,23 @@ function wire() {
   });
 }
 
+/**
+ * Hand the server this browser's keys, but take the server's persisted
+ * non-secret config first. Otherwise a browser with an older localStorage
+ * overwrites the configured provider base URLs and models on every page load.
+ */
+async function syncSettingsWithServer() {
+  const status = await api('GET', '/api/providers');
+  S.settings = adoptServerSettings(S.settings, status?.settings);
+  S.providers = await pushSettings(S.settings);
+  return S.providers;
+}
+
 async function main() {
   wire();
   applyI18n();
   try {
-    S.providers = await pushSettings(S.settings);
+    await syncSettingsWithServer();
     warnMissingKeys();
   } catch (e) {
     fail(e);
